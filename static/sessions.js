@@ -287,7 +287,7 @@ function renderSessionListFromCache(){
     trash.onclick=async(e)=>{e.stopPropagation();e.preventDefault();await deleteSession(s.session_id);};
     // Project move button (folder icon)
     const move=document.createElement('button');
-    move.className='session-action-btn';move.innerHTML='&#128194;';move.title='Move to project';
+    move.className='session-action-btn'+(s.project_id?' has-project':'');move.innerHTML='&#128194;';move.title='Move to project';
     move.onclick=async(e)=>{e.stopPropagation();e.preventDefault();_showProjectPicker(s,move);};
     // Project dot indicator
     if(s.project_id){
@@ -360,11 +360,14 @@ function _showProjectPicker(session, anchorEl){
   document.querySelectorAll('.project-picker').forEach(p=>p.remove());
   const picker=document.createElement('div');
   picker.className='project-picker';
+  // Close on outside click
+  const close=(e)=>{if(!picker.contains(e.target)&&e.target!==anchorEl){picker.remove();document.removeEventListener('click',close);}};
   // "No project" option
   const none=document.createElement('div');
   none.className='project-picker-item'+(!session.project_id?' active':'');
   none.textContent='No project';
   none.onclick=async()=>{
+    document.removeEventListener('click',close);
     picker.remove();
     await api('/api/session/move',{method:'POST',body:JSON.stringify({session_id:session.session_id,project_id:null})});
     session.project_id=null;
@@ -386,6 +389,7 @@ function _showProjectPicker(session, anchorEl){
     name.textContent=p.name;
     item.appendChild(name);
     item.onclick=async()=>{
+      document.removeEventListener('click',close);
       picker.remove();
       await api('/api/session/move',{method:'POST',body:JSON.stringify({session_id:session.session_id,project_id:p.project_id})});
       session.project_id=p.project_id;
@@ -394,11 +398,43 @@ function _showProjectPicker(session, anchorEl){
     };
     picker.appendChild(item);
   }
-  // Position relative to anchor
-  anchorEl.style.position='relative';
-  anchorEl.appendChild(picker);
-  // Close on outside click
-  const close=(e)=>{if(!picker.contains(e.target)&&e.target!==anchorEl){picker.remove();document.removeEventListener('click',close);}};
+  // "+ New project" item
+  const createItem=document.createElement('div');
+  createItem.className='project-picker-item project-picker-create';
+  createItem.textContent='+ New project';
+  createItem.onclick=async()=>{
+    picker.remove();
+    document.removeEventListener('click',close);
+    const name=prompt('Project name:');
+    if(!name||!name.trim()) return;
+    const color=PROJECT_COLORS[_allProjects.length%PROJECT_COLORS.length];
+    const res=await api('/api/projects/create',{method:'POST',body:JSON.stringify({name:name.trim(),color})});
+    if(res.project){
+      _allProjects.push(res.project);
+      await api('/api/session/move',{method:'POST',body:JSON.stringify({session_id:session.session_id,project_id:res.project.project_id})});
+      session.project_id=res.project.project_id;
+      await renderSessionList();
+      showToast('Created "'+res.project.name+'" and moved session');
+    }
+  };
+  picker.appendChild(createItem);
+  // Position picker on document.body to avoid overflow:hidden clipping
+  document.body.appendChild(picker);
+  const rect=anchorEl.getBoundingClientRect();
+  picker.style.position='fixed';
+  picker.style.zIndex='999';
+  const spaceBelow=window.innerHeight-rect.bottom;
+  if(spaceBelow<160&&rect.top>160){
+    picker.style.bottom=(window.innerHeight-rect.top+4)+'px';
+    picker.style.top='auto';
+  }else{
+    picker.style.top=(rect.bottom+4)+'px';
+    picker.style.bottom='auto';
+  }
+  const pickerW=160;
+  let left=rect.right-pickerW;
+  if(left<8) left=8;
+  picker.style.left=left+'px';
   setTimeout(()=>document.addEventListener('click',close),0);
 }
 
