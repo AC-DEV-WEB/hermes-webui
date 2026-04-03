@@ -8,7 +8,7 @@
 > Prerequisites: SSH tunnel is active on port 8787. Open http://localhost:8787 in browser.
 > Server health check: curl http://127.0.0.1:8787/health should return {"status":"ok"}.
 >
-> Automated tests: 327 total (304 passing, 23 pre-existing failures).
+> Automated tests: 328 total (328 passing, 0 failures).
 > Run: `pytest tests/ -v --timeout=60`
 
 ---
@@ -1670,7 +1670,7 @@ Each has automated API-level tests in `tests/test_sprint{N}.py`.
 ---
 
 *Last updated: Sprint 19 / v0.21, April 3, 2026*
-*Total automated tests: 327 (304 passing, 23 pre-existing failures in Sprint 3/5/7)*
+*Total automated tests: 328 (328 passing, 0 failures)*
 *Regression gate: tests/test_regressions.py (23 tests)*
 *Run: pytest tests/ -v --timeout=60*
 *Source: <repo>/*

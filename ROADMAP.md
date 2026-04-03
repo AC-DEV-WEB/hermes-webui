@@ -4,7 +4,7 @@
 > Everything you can do from the CLI terminal, you can do from this UI.
 >
 > Last updated: Sprint 19 / v0.21 (April 3, 2026)
-> Tests: 327 total (304 passing, 23 pre-existing failures)
+> Tests: 328 total (328 passing, 0 failures)
 > Source: <repo>/
 
 ---
@@ -35,7 +35,7 @@
 | Sprint 16 | Session sidebar visual polish | SVG action icons, overlay hover actions, pin indicator, project border, safe HTML rendering | 289 |
 | Sprint 17 | Workspace polish + slash commands + settings | Breadcrumb navigation, slash command autocomplete, send key setting (#26) | 318 |
 | Sprint 18 | Thinking display + workspace tree | File preview auto-close, thinking/reasoning cards, expandable directory tree (#22) | 318 |
-| Sprint 19 | Auth + security hardening | Password auth (off by default), login page, security headers, 20MB body limit (#23) | 327 |
+| Sprint 19 | Auth + security hardening | Password auth (off by default), login page, security headers, 20MB body limit (#23) | 328 |
 
 ---
 

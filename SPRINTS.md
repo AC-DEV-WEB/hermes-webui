@@ -1,6 +1,6 @@
 # Hermes Web UI -- Forward Sprint Plan
 
-> Current state: v0.21 | 327 tests (304 passing) | Daily driver ready
+> Current state: v0.21 | 328 tests | Daily driver ready
 > This document plans the path from here to two targets:
 >
 > Target A: 1:1 feature parity with the Hermes CLI (everything you can do from the
@@ -384,7 +384,7 @@ hardening feature before the app is safe to expose to a network.
 - `password_hash` added to `_SETTINGS_DEFAULTS` in config.py.
 - `_set_password` special field in save_settings for secure password updates.
 
-**Tests:** 9 new. Total: 327.
+**Tests:** 10 new. Total: 328.
 **Hermes CLI parity impact:** Low (CLI has no auth concerns)
 **Claude parity impact:** High (Claude is authenticated)
 
@@ -525,5 +525,5 @@ existing Whisper and TTS APIs.
 ---
 
 *Last updated: April 3, 2026*
-*Current version: v0.21 | 327 tests (304 passing)*
+*Current version: v0.21 | 328 tests*
 *Next sprint: Sprint 20 (Voice + TTS)*

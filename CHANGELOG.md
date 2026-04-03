@@ -6,7 +6,7 @@
 ---
 
 ## [v0.21] Sprint 19 -- Auth + Security Hardening
-*April 3, 2026 | 327 tests*
+*April 3, 2026 | 328 tests*
 
 ### Features
 - **Password authentication (Issue #23).** Optional password auth, off by default.
@@ -27,8 +27,8 @@
 - `password_hash` added to `_SETTINGS_DEFAULTS`.
 
 ### Tests
-- 9 new tests in `test_sprint19.py`: auth status, login flow, security headers,
-  cache-control, settings password field. Total: **327 tests (304 passing)**.
+- 10 new tests in `test_sprint19.py`: auth status, login flow, security headers,
+  cache-control, settings password field, request size limit. Total: **328 tests (328 passing)**.
 
 ---
 
@@ -676,4 +676,4 @@ Three-panel layout: sessions sidebar, chat area, workspace panel.
 
 ---
 
-*Last updated: v0.21, April 3, 2026 | Tests: 327*
+*Last updated: v0.21, April 3, 2026 | Tests: 328*
