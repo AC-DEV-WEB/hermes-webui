@@ -404,31 +404,29 @@ CLI_TOOLSETS = get_config().get("platform_toolsets", {}).get("cli", _DEFAULT_TOO
 # ── Model / provider discovery ───────────────────────────────────────────────
 
 # Hardcoded fallback models (used when no config.yaml or agent is available)
+# Also used as the OpenRouter model list — keep this curated to current, widely-used models.
 _FALLBACK_MODELS = [
-    {"provider": "OpenAI", "id": "openai/gpt-5.4-mini", "label": "GPT-5.4 Mini"},
-    {"provider": "OpenAI", "id": "openai/o4-mini", "label": "o4-mini"},
-    {
-        "provider": "Anthropic",
-        "id": "anthropic/claude-sonnet-4.6",
-        "label": "Claude Sonnet 4.6",
-    },
-    {
-        "provider": "Anthropic",
-        "id": "anthropic/claude-sonnet-4-5",
-        "label": "Claude Sonnet 4.5",
-    },
-    {
-        "provider": "Anthropic",
-        "id": "anthropic/claude-haiku-4-5",
-        "label": "Claude Haiku 4.5",
-    },
-    {"provider": "Other", "id": "google/gemini-2.5-pro", "label": "Gemini 2.5 Pro"},
-    {
-        "provider": "Other",
-        "id": "deepseek/deepseek-chat-v3-0324",
-        "label": "DeepSeek V3",
-    },
-    {"provider": "Other", "id": "meta-llama/llama-4-scout", "label": "Llama 4 Scout"},
+    # OpenAI
+    {"provider": "OpenAI",    "id": "openai/gpt-5.4-mini",                "label": "GPT-5.4 Mini"},
+    {"provider": "OpenAI",    "id": "openai/gpt-5.4",                     "label": "GPT-5.4"},
+    # Anthropic — 4.6 flagship + 4.5 generation
+    {"provider": "Anthropic", "id": "anthropic/claude-opus-4.6",          "label": "Claude Opus 4.6"},
+    {"provider": "Anthropic", "id": "anthropic/claude-sonnet-4.6",        "label": "Claude Sonnet 4.6"},
+    {"provider": "Anthropic", "id": "anthropic/claude-sonnet-4-5",        "label": "Claude Sonnet 4.5"},
+    {"provider": "Anthropic", "id": "anthropic/claude-haiku-4-5",         "label": "Claude Haiku 4.5"},
+    # Google
+    {"provider": "Google",    "id": "google/gemini-3.1-pro-preview",              "label": "Gemini 3.1 Pro Preview"},
+    {"provider": "Google",    "id": "google/gemini-3-flash-preview",              "label": "Gemini 3 Flash Preview"},
+    # DeepSeek
+    {"provider": "DeepSeek",  "id": "deepseek/deepseek-chat-v3-0324",     "label": "DeepSeek V3"},
+    {"provider": "DeepSeek",  "id": "deepseek/deepseek-r1",               "label": "DeepSeek R1"},
+    # Qwen (Alibaba) — strong coding and general models
+    {"provider": "Qwen",      "id": "qwen/qwen3-coder",                   "label": "Qwen3 Coder"},
+    {"provider": "Qwen",      "id": "qwen/qwen3.6-plus",                  "label": "Qwen3.6 Plus"},
+    # xAI
+    {"provider": "xAI",       "id": "x-ai/grok-4.20",                    "label": "Grok 4.20"},
+    # Mistral
+    {"provider": "Mistral",   "id": "mistralai/mistral-large-latest",     "label": "Mistral Large"},
 ]
 
 # Provider display names for known Hermes provider IDs
@@ -451,6 +449,9 @@ _PROVIDER_DISPLAY = {
     "opencode-zen": "OpenCode Zen",
     "opencode-go": "OpenCode Go",
     "lmstudio": "LM Studio",
+    "mistralai": "Mistral",
+    "qwen": "Qwen",
+    "x-ai": "xAI",
 }
 
 # Well-known models per provider (used to populate dropdown for direct API providers)
@@ -463,7 +464,7 @@ _PROVIDER_MODELS = {
     ],
     "openai": [
         {"id": "gpt-5.4-mini", "label": "GPT-5.4 Mini"},
-        {"id": "o4-mini", "label": "o4-mini"},
+        {"id": "gpt-5.4",      "label": "GPT-5.4"},
     ],
     "openai-codex": [
         {"id": "gpt-5.4", "label": "GPT-5.4"},
@@ -475,7 +476,8 @@ _PROVIDER_MODELS = {
         {"id": "codex-mini-latest", "label": "Codex Mini (latest)"},
     ],
     "google": [
-        {"id": "gemini-2.5-pro", "label": "Gemini 2.5 Pro"},
+        {"id": "gemini-3.1-pro-preview",   "label": "Gemini 3.1 Pro Preview"},
+        {"id": "gemini-3-flash-preview", "label": "Gemini 3 Flash Preview"},
     ],
     "deepseek": [
         {"id": "deepseek-chat-v3-0324", "label": "DeepSeek V3"},
@@ -485,7 +487,7 @@ _PROVIDER_MODELS = {
         {"id": "claude-opus-4.6", "label": "Claude Opus 4.6 (via Nous)"},
         {"id": "claude-sonnet-4.6", "label": "Claude Sonnet 4.6 (via Nous)"},
         {"id": "gpt-5.4-mini", "label": "GPT-5.4 Mini (via Nous)"},
-        {"id": "gemini-2.5-pro", "label": "Gemini 2.5 Pro (via Nous)"},
+        {"id": "gemini-3.1-pro-preview", "label": "Gemini 3.1 Pro Preview (via Nous)"},
     ],
     "zai": [
         {"id": "glm-5.1", "label": "GLM-5.1"},
@@ -515,7 +517,7 @@ _PROVIDER_MODELS = {
         {"id": "gpt-4o", "label": "GPT-4o"},
         {"id": "claude-opus-4.6", "label": "Claude Opus 4.6"},
         {"id": "claude-sonnet-4.6", "label": "Claude Sonnet 4.6"},
-        {"id": "gemini-2.5-pro", "label": "Gemini 2.5 Pro"},
+        {"id": "gemini-3.1-pro-preview", "label": "Gemini 3.1 Pro Preview"},
     ],
     # OpenCode Zen — curated models via opencode.ai/zen (pay-as-you-go credits)
     "opencode-zen": [
@@ -542,8 +544,8 @@ _PROVIDER_MODELS = {
         {"id": "claude-sonnet-4", "label": "Claude Sonnet 4"},
         {"id": "claude-haiku-4-5", "label": "Claude Haiku 4.5"},
         {"id": "claude-3-5-haiku", "label": "Claude 3.5 Haiku"},
-        {"id": "gemini-3.1-pro", "label": "Gemini 3.1 Pro"},
-        {"id": "gemini-3-flash", "label": "Gemini 3 Flash"},
+        {"id": "gemini-3.1-pro-preview", "label": "Gemini 3.1 Pro Preview"},
+        {"id": "gemini-3-flash-preview", "label": "Gemini 3 Flash Preview"},
         {"id": "glm-5.1", "label": "GLM-5.1"},
         {"id": "glm-5", "label": "GLM-5"},
         {"id": "kimi-k2.5", "label": "Kimi K2.5"},
@@ -564,8 +566,22 @@ _PROVIDER_MODELS = {
     ],
     # 'gemini' is the hermes_cli provider ID for Google AI Studio
     "gemini": [
-        {"id": "gemini-2.5-pro", "label": "Gemini 2.5 Pro"},
-        {"id": "gemini-2.0-flash", "label": "Gemini 2.0 Flash"},
+        {"id": "gemini-3.1-pro-preview", "label": "Gemini 3.1 Pro Preview"},
+        {"id": "gemini-3-flash-preview", "label": "Gemini 3 Flash Preview"},
+    ],
+    # Mistral — prefix used in OpenRouter model IDs (mistralai/mistral-large-latest)
+    "mistralai": [
+        {"id": "mistral-large-latest", "label": "Mistral Large"},
+        {"id": "mistral-small-latest", "label": "Mistral Small"},
+    ],
+    # Qwen (Alibaba) — prefix used in OpenRouter model IDs (qwen/qwen3-coder)
+    "qwen": [
+        {"id": "qwen3-coder",   "label": "Qwen3 Coder"},
+        {"id": "qwen3.6-plus",  "label": "Qwen3.6 Plus"},
+    ],
+    # xAI — prefix used in OpenRouter model IDs (x-ai/grok-4-20)
+    "x-ai": [
+        {"id": "grok-4.20", "label": "Grok 4.20"},
     ],
 }
 

@@ -1,5 +1,10 @@
 # Hermes Web UI -- Changelog
 
+## [v0.50.54] — 2026-04-15
+
+### Changed
+- **OpenRouter model list** — updated to 14 current models across 7 providers. All slugs verified live against the OpenRouter catalog. Removed `o4-mini`, old Gemini 2.x entries, and Llama 4. Added Claude Opus 4.6, GPT-5.4, Gemini 3.1 Pro Preview, Gemini 3 Flash Preview, DeepSeek R1, Qwen3 Coder, Qwen3.6 Plus, Grok 4.20, and Mistral Large. Both Claude 4.6 and 4.5 generations preserved. Fixed `grok-4-20` → `grok-4.20` slug and Gemini `-preview` suffixes.
+
 ## [v0.50.53] — 2026-04-15
 
 ### Fixed
