@@ -1,5 +1,10 @@
 # Hermes Web UI -- Changelog
 
+## [v0.50.53] — 2026-04-15
+
+### Fixed
+- **Custom endpoint slash model IDs** — model IDs with vendor prefixes that are intrinsic (e.g. `zai-org/GLM-5.1` on DeepInfra) are now preserved when routing to a custom `base_url` endpoint. Previously, all prefixed IDs were stripped, causing `model_not_found` errors on providers that require the full vendor/model format. Known provider namespaces (`openai/`, `google/`, `anthropic/`, etc.) are still stripped as before. (Fixes #548, PR #549 by @eba8)
+
 ## [v0.50.52] — 2026-04-15
 
 ### Fixed

@@ -637,10 +637,14 @@ def resolve_model_provider(model_id: str) -> tuple:
         # just because the model name contains a slash (e.g. google/gemma-4-26b-a4b).
         # The user has explicitly pointed at a base_url, so trust their routing config.
         if config_base_url:
-            # Strip provider prefix (e.g. 'openai/gpt-5.4' -> 'gpt-5.4') so prefixed
-            # model IDs from previous sessions don't break custom endpoint routing.
-            bare_model = model_id.split('/', 1)[-1]
-            return bare_model, config_provider, config_base_url
+            # Only strip the provider prefix when it's a known provider namespace
+            # (e.g. "openai/gpt-5.4" → "gpt-5.4" for a custom OpenAI-compatible proxy).
+            # Unknown prefixes (e.g. "zai-org/GLM-5.1" on DeepInfra) are intrinsic to
+            # the model ID and must be preserved — stripping them causes model_not_found.
+            if prefix in _PROVIDER_MODELS:
+                return bare, config_provider, config_base_url
+            # Unknown prefix (not a named provider) — pass full model_id through.
+            return model_id, config_provider, config_base_url
         # If prefix does NOT match config provider, the user picked a cross-provider model
         # from the OpenRouter dropdown (e.g. config=anthropic but picked openai/gpt-5.4-mini).
         # In this case always route through openrouter with the full provider/model string.
