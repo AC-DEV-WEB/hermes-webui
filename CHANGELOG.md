@@ -5,6 +5,11 @@
 ### Fixed
 - **Reasoning chip now appears after the model chip** in the composer toolbar — model is a more fundamental choice and should be stable in position regardless of whether reasoning is active. Order: Profile → Workspace → Model → Reasoning. (`static/index.html`)
 
+## v0.50.187 — 2026-04-24
+
+### Fixed
+- **Rail/hamburger breakpoint gap closed** — at 641–767px the rail was hidden (required ≥768px) and the hamburger was also hidden (only ≤640px), leaving an awkward in-between zone. Rail breakpoint moved to ≥641px so the rail appears alongside the persistent sidebar at medium widths. Mobile slide-in behavior (hamburger toggle, overlay scrim) is unchanged at ≤640px. (`static/style.css`) [#956]
+
 ## v0.50.186 — 2026-04-24
 
 ### Changed
