@@ -1029,6 +1029,28 @@ def test_outside_a_tag_a_two_letter_code_is_the_language_only_first():
     assert _resolve_pinned_title_scripts("pa-Aran") == ("arabic",)
 
 
+def test_hyphenated_names_and_leading_region_codes():
+    """A hyphenated name is not a BCP 47 tag, and a leading region code
+    does not outrank the language name after it."""
+    from api.streaming import _generated_title_language_mismatch, _resolve_pinned_title_scripts
+
+    assert _resolve_pinned_title_scripts("Brazilian-Portuguese") == ("latin",)
+    assert _resolve_pinned_title_scripts("Traditional-Chinese") == ("cjk",)
+    assert _resolve_pinned_title_scripts("Simplified_Chinese") == ("cjk",)
+    assert _resolve_pinned_title_scripts("Cyrillic-Mongolian") == ("cyrillic",)
+    assert _generated_title_language_mismatch(
+        "How do I fix this error?", "\u7e41\u9ad4\u4e2d\u6587", "Traditional-Chinese"
+    ) is False
+    for pin in ("BE French", "NE French", "ML French"):
+        assert _resolve_pinned_title_scripts(pin) == ("latin",), pin
+    assert _resolve_pinned_title_scripts("UK English") == ("latin",)
+    assert _resolve_pinned_title_scripts("BO Spanish") == ("latin",)
+    assert _resolve_pinned_title_scripts("be") == ("cyrillic",)
+    # a primary subtag longer than three letters is not a tag, so a lone "x"
+    # is skipped and the qualifier after it still counts
+    assert _resolve_pinned_title_scripts("Kazakh-x-Latin") == ("latin",)
+
+
 def test_iso_15924_codes_narrow_like_script_names():
     from api.streaming import _resolve_pinned_title_scripts
 

@@ -4686,7 +4686,10 @@ def _resolve_pinned_title_scripts(language: str) -> tuple:
     ).translate({0x2010: '-', 0x2011: '-', 0x2212: '-'})
     if not folded:
         return ()
-    is_tag = re.fullmatch(r'[a-z0-9]+(?:[-_][a-z0-9]+)*', folded) is not None
+    # BCP 47 shape: a primary subtag of one to three letters (x and i are
+    # singletons), then subtags of at most eight. "Brazilian-Portuguese" is
+    # not a tag.
+    is_tag = re.fullmatch(r'[a-z]{1,3}(?:[-_][a-z0-9]{1,8})*', folded) is not None
     tokens = []
     for token in re.split(r'[\s\-_/(),.+&\u2013\u2014]+', folded):
         if len(token) == 1:
@@ -4699,18 +4702,17 @@ def _resolve_pinned_title_scripts(language: str) -> tuple:
             continue
         if token:
             tokens.append(token)
-    # In a tag the language is the first subtag or nothing: a later subtag
-    # is a script, region or variant, and a region code can collide with a
-    # language key (the "my" in "ms-MY" is Malaysia, not Burmese). Outside a
-    # tag the same holds for two-letter codes, so the "SI" in "Slovenian
-    # (SI)" is not Sinhala; names ("Brazilian Portuguese") match anywhere.
+    # A language name ("Portuguese", "Lao") names the language wherever it
+    # sits. A two-letter code does only as the first token and only when no
+    # name is present, because a region code collides with language keys:
+    # the "MY" in "ms-MY" is Malaysia, not Burmese; the "SI" in "Slovenian
+    # (SI)" is not Sinhala; the "BE" in "BE French" is not Belarusian.
     lang_at = next(
-        (
-            i for i, t in enumerate(tokens)
-            if t in _TITLE_LANGUAGE_SCRIPTS and (i == 0 or (not is_tag and len(t) > 2))
-        ),
+        (i for i, t in enumerate(tokens) if len(t) > 2 and t in _TITLE_LANGUAGE_SCRIPTS),
         None,
     )
+    if lang_at is None and tokens and len(tokens[0]) == 2 and tokens[0] in _TITLE_LANGUAGE_SCRIPTS:
+        lang_at = 0
     if lang_at is None:
         # An unmapped language with a script qualifier ("sr-Latn", "Serbian
         # (Cyrillic)") resolves to the qualifier; a bare script name
