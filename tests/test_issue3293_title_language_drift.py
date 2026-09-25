@@ -1173,9 +1173,10 @@ def test_serbian_is_known_but_has_no_default(monkeypatch):
 
 
 def test_a_code_beside_its_own_language_name_is_one_language():
-    """"mn (Mongolian)" and "th - Thai (Romanized)" name one language twice.
-    Outside a tag the code does not count, so the name decides and a real
-    qualifier still narrows."""
+    """"mn (Mongolian)": the code outside and the name inside agree, so they
+    name one language. In "mn - Mongolian" and "th - Thai (Romanized)" the
+    name is outside the brackets and decides alone; a real qualifier still
+    narrows."""
     from api.streaming import _resolve_pinned_title_scripts
 
     assert _resolve_pinned_title_scripts("mn (Mongolian)") == ("cyrillic", "mongolian")
@@ -1258,3 +1259,40 @@ def test_latin_is_a_language():
     assert _resolve_pinned_title_scripts("Classical Latin") == ("latin",)
     assert _resolve_pinned_title_scripts("la-Latn") == ("latin",)
     assert _resolve_pinned_title_scripts("Latin American Spanish") == ("latin",)
+
+
+def test_nested_brackets_stay_inside(monkeypatch):
+    """An inner bracket does not end the outer one, so "Arabic" here is still
+    bracketed and names no language."""
+    from api.streaming import _resolve_pinned_title_scripts
+
+    assert _resolve_pinned_title_scripts("Klingon (script [ISO 15924] Arabic)") == ()
+    assert _resolve_pinned_title_scripts("Punjabi (script [ISO 15924] Arabic)") == ("arabic",)
+    agent, aux = _title_via_both_wrappers(
+        monkeypatch, "Klingon (script [ISO 15924] Arabic)", "How do I fix this error?",
+        "\u0625\u0635\u0644\u0627\u062d \u0627\u0644\u062e\u0637\u0623",
+    )
+    assert agent == (None, "llm_language_mismatch")
+    assert aux == (None, "llm_language_mismatch_aux")
+
+
+def test_native_name_with_the_english_name_bracketed():
+    """A pin written in its own script is unreadable to the ASCII-only table,
+    so a single bracketed English name decides."""
+    from api.streaming import _resolve_pinned_title_scripts
+
+    assert _resolve_pinned_title_scripts("\u65e5\u672c\u8a9e (Japanese)") == ("cjk",)
+    assert _resolve_pinned_title_scripts("\u0420\u0443\u0441\u0441\u043a\u0438\u0439 (Russian)") == ("cyrillic",)
+    assert _resolve_pinned_title_scripts("\u0939\u093f\u0928\u094d\u0926\u0940 (Hindi)") == ("devanagari",)
+    assert _resolve_pinned_title_scripts("\u0e44\u0e17\u0e22 (Thai)") == ("thai",)
+    # an ASCII word outside is a claim the table can check, so it stays ()
+    assert _resolve_pinned_title_scripts("Klingon (Arabic)") == ()
+
+
+def test_bracketed_own_name_beside_another_qualifier_conflicts():
+    from api.streaming import _resolve_pinned_title_scripts
+
+    assert _resolve_pinned_title_scripts("ar (Arabic, Latin)") == ()
+    assert _resolve_pinned_title_scripts("ta (Tamil, Latin)") == ()
+    assert _resolve_pinned_title_scripts("ar (Arabic)") == ("arabic",)
+    assert _resolve_pinned_title_scripts("mn (Mongolian)") == ("cyrillic", "mongolian")

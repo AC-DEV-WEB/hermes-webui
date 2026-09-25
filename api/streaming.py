@@ -4690,10 +4690,32 @@ def _title_pin_tokens(text: str, is_tag: bool) -> list:
     ``bracketed`` is True for a word inside parentheses or square brackets,
     which ``_resolve_pinned_title_scripts`` reads only as a qualifier.
     """
+    # Split into runs outside and inside brackets, tracking depth so a nested
+    # bracket ("(script [ISO 15924] Arabic)") does not end the outer one. An
+    # unclosed bracket runs to the end of the pin.
+    segments, run, depth = [], [], 0
+    for ch in text:
+        if ch in '([':
+            if depth == 0:
+                segments.append((''.join(run), False))
+                run = []
+            else:
+                run.append(' ')
+            depth += 1
+        elif ch in ')]' and depth:
+            depth -= 1
+            if depth == 0:
+                segments.append((''.join(run), True))
+                run = []
+            else:
+                run.append(' ')
+        else:
+            run.append(' ' if ch in ')]' else ch)
+    segments.append((''.join(run), depth > 0))
+
     pairs = []
-    for segment in re.finditer(r'[(\[][^)\]]*[)\]]?|[^(\[]+', text):
-        bracketed = segment.group(0)[0] in '(['
-        for token in re.split(r'[\s\-_/()\[\],.;:|+&\u2013\u2014]+', segment.group(0)):
+    for segment, bracketed in segments:
+        for token in re.split(r'[\s\-_/()\[\],.;:|+&\u2013\u2014]+', segment):
             if len(token) == 1:
                 # In a tag, a BCP 47 singleton ("x", "u") starts an extension
                 # or private-use section, so nothing from it on is read
@@ -4715,8 +4737,12 @@ def _resolve_pinned_title_scripts(language: str) -> tuple:
     ("en_US.UTF-8") is dropped first. In prose it is a language name
     ("Portuguese", "Brazilian Portuguese", "Lao") anywhere outside brackets.
     A two-letter code in prose collides with region codes and English words
-    ("Slovenian (SI)", "BE French", "No preference") and never counts, and a
-    bracketed word only qualifies ("Klingon (Arabic)" names no language).
+    ("Slovenian (SI)", "BE French", "No preference") and does not count on
+    its own, and a bracketed word only qualifies ("Klingon (Arabic)" names no
+    language). Two exceptions name a language from inside brackets: a code
+    outside that agrees with the bracketed name ("mn (Mongolian)"), and a
+    pin whose outside words are all in a non-Latin script, which this
+    ASCII-only table cannot read, so the bracketed English name decides.
 
     With a language established, at most one script qualifier may narrow it
     ("pa-Arab", "Punjabi (Arabic)", "sr-Latn", "Mongolian (Traditional)").
@@ -4767,14 +4793,25 @@ def _resolve_pinned_title_scripts(language: str) -> tuple:
         if token in _TITLE_LANGUAGE_IDENTITY
         and (i == 0 if is_tag else (len(token) > 2 and not bracketed))
     ]
+    tentative = set()
     if not named and not is_tag:
-        # "mn (Mongolian)": a code outside the brackets and its own language's
-        # name inside them name one language together. "BE (French)" does not.
-        outside = {_TITLE_LANGUAGE_IDENTITY.get(t) for t, br in pairs if not br} - {None}
+        # Two prose forms name a language from inside brackets. "mn
+        # (Mongolian)": a code outside and its own language's name inside
+        # agree. "Russian written natively (Russian)": the words outside are
+        # all in another script, which this ASCII-only table cannot read.
+        # "BE (French)" and "Klingon (Arabic)" name nothing.
+        outside_words = [t for t, br in pairs if not br]
+        outside = {_TITLE_LANGUAGE_IDENTITY.get(t) for t in outside_words} - {None}
         inside = {_TITLE_LANGUAGE_IDENTITY.get(t) for t, br in pairs if br and len(t) > 2} - {None}
-        if len(outside & inside) == 1:
-            agreed = (outside & inside).pop()
+        native = bool(outside_words) and not any(t.isascii() for t in outside_words)
+        candidates = outside & inside if outside else (inside if native else set())
+        if len(candidates) == 1:
+            agreed = candidates.pop()
             named = [(i, agreed) for i, t in enumerate(tokens) if _TITLE_LANGUAGE_IDENTITY.get(t) == agreed]
+            # A bracketed name that is also a script ("Arabic" in "ar
+            # (Arabic)") names the language only if nothing else qualifies;
+            # beside another qualifier ("ar (Arabic, Latin)") it is one too.
+            tentative = {i for i, _name in named if pairs[i][1] and tokens[i] in _TITLE_SCRIPT_QUALIFIERS}
     if len({name for _i, name in named}) > 1:
         # "Punjabi (Arabic)", "Latin American Spanish": a name that is also a
         # script qualifies the other language instead of naming a second one.
@@ -4794,6 +4831,8 @@ def _resolve_pinned_title_scripts(language: str) -> tuple:
         for i, token in enumerate(tokens)
         if i not in naming and (token in own or token in _TITLE_SCRIPT_QUALIFIERS)
     }
+    if scripts:
+        scripts |= {_TITLE_SCRIPT_QUALIFIERS[tokens[i]] for i in tentative}
     if len(scripts) > 1:
         return ()
     if scripts:

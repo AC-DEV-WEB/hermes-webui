@@ -169,7 +169,9 @@ first subtag. A POSIX locale's encoding and modifier are ignored
 language name counts anywhere outside brackets, so `Francais`, `Français`,
 `Traditional Chinese` and `Brazilian Portuguese` resolve. A word in brackets only
 qualifies: `Tamil (Arabic)` is Tamil in Arabic script, and `mn (Mongolian)` is
-Mongolian because the code and the name agree.
+Mongolian because the code and the name agree. A language name written in its own
+script is not recognised, so add the English name in brackets: `Русский (Russian)`
+resolves.
 
 The pin affects session titles only. It does not change the language the
 assistant replies in, and it has no effect when
