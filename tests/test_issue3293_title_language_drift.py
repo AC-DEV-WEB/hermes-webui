@@ -1049,6 +1049,7 @@ def test_hyphenated_names_and_leading_region_codes():
     # a primary subtag longer than three letters is not a tag, so a lone "x"
     # is skipped and the qualifier after it still counts
     assert _resolve_pinned_title_scripts("Kazakh-x-Latin") == ("latin",)
+    assert _resolve_pinned_title_scripts("Arabic [Hebrew]") == ("hebrew",)
 
 
 def test_iso_15924_codes_narrow_like_script_names():

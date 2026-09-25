@@ -4691,7 +4691,7 @@ def _resolve_pinned_title_scripts(language: str) -> tuple:
     # not a tag.
     is_tag = re.fullmatch(r'[a-z]{1,3}(?:[-_][a-z0-9]{1,8})*', folded) is not None
     tokens = []
-    for token in re.split(r'[\s\-_/(),.+&\u2013\u2014]+', folded):
+    for token in re.split(r'[\s\-_/()\[\],.+&\u2013\u2014]+', folded):
         if len(token) == 1:
             # In a tag, a BCP 47 singleton ("x", "u") starts an extension or
             # private-use section, so nothing from it on is read ("x-arab" is
@@ -4702,6 +4702,10 @@ def _resolve_pinned_title_scripts(language: str) -> tuple:
             continue
         if token:
             tokens.append(token)
+    # Known limitation: a code beside a language whose name is also a script
+    # name ("mn (Mongolian)", "th - Thai (Romanized)") is ambiguous, and the
+    # name is taken as the language. Every rule tried for that shape fixed
+    # one form and broke another; the ISO 15924 form ("mn-Mong") is exact.
     # A language name ("Portuguese", "Lao") names the language wherever it
     # sits. A two-letter code does only as the first token and only when no
     # name is present, because a region code collides with language keys:
