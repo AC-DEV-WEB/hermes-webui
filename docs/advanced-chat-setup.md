@@ -163,7 +163,9 @@ what is accepted:
   language name or a tag instead: `Portuguese (Brazil)` or `pt-BR`.
 
 Language lookup is diacritic-insensitive. In a BCP 47 tag the language is the
-first subtag, and a POSIX locale suffix is ignored (`en_US.UTF-8`). Otherwise a
+first subtag. A POSIX locale's encoding and modifier are ignored
+(`en_US.UTF-8`), except a modifier that names a script, which qualifies
+(`be_BY@latin`, `sr_RS@latin`). Otherwise a
 language name counts anywhere outside brackets, so `Francais`, `Français`,
 `Traditional Chinese` and `Brazilian Portuguese` resolve. A word in brackets only
 qualifies: `Tamil (Arabic)` is Tamil in Arabic script, and `mn (Mongolian)` is

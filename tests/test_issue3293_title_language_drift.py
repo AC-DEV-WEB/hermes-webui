@@ -952,7 +952,8 @@ def test_qualifier_beats_the_language_token_wherever_it_sits():
 
     assert _resolve_pinned_title_scripts("Egyptian Arabic") == ("arabic",)
     assert _resolve_pinned_title_scripts("Egyptian Arabic (Latin)") == ("latin",)
-    assert _resolve_pinned_title_scripts("Latin Egyptian Arabic") == ("latin",)
+    # Latin and Arabic are both languages and scripts, so this is ambiguous
+    assert _resolve_pinned_title_scripts("Latin Egyptian Arabic") == ()
     # accented qualifier is folded before the lookup
     assert _resolve_pinned_title_scripts("Punjabi (Gurmukh\u012b)") == ("gurmukhi",)
     # a BCP 47 private-use section is not a script qualifier
@@ -1206,7 +1207,7 @@ def test_bracketed_script_names_qualify_a_language_that_is_also_a_script():
     assert _resolve_pinned_title_scripts("ar (Arabic)") == ("arabic",)
 
 
-def test_posix_locale_suffix_is_ignored():
+def test_posix_locale_encoding_is_ignored_and_script_modifier_qualifies():
     from api.streaming import _resolve_pinned_title_scripts
 
     assert _resolve_pinned_title_scripts("en_US.UTF-8") == ("latin",)
@@ -1219,3 +1220,41 @@ def test_posix_locale_suffix_is_ignored():
     assert _resolve_pinned_title_scripts("de_DE.UTF-8@euro") == ("latin",)
     assert _resolve_pinned_title_scripts("ca_ES@valencia") == ("latin",)
     assert _resolve_pinned_title_scripts("zh-Hant-u-nu-hanidec") == ("cjk",)
+
+
+def test_a_qualifier_spelling_the_language_still_counts(monkeypatch):
+    """Only the tokens that name the language are left out of the
+    qualifiers. "Thai" in "th-Thai-Latn" is the ISO 15924 Thai script and
+    conflicts with Latn; a locale's @mongolian modifier narrows Mongolian."""
+    from api.streaming import _resolve_pinned_title_scripts
+
+    assert _resolve_pinned_title_scripts("th-Thai-Latn") == ()
+    assert _resolve_pinned_title_scripts("Arabic (Arabic, Latin)") == ()
+    assert _resolve_pinned_title_scripts("mn_CN@mongolian") == ("mongolian",)
+    assert _resolve_pinned_title_scripts("th-Thai") == ("thai",)
+    agent, aux = _title_via_both_wrappers(
+        monkeypatch, "th-Thai-Latn", "\u0e41\u0e01\u0e49\u0e44\u0e02\u0e02\u0e49\u0e2d\u0e1c\u0e34\u0e14\u0e1e\u0e25\u0e32\u0e14", "Error fix guide"
+    )
+    assert agent == (None, "llm_language_mismatch")
+    assert aux == (None, "llm_language_mismatch_aux")
+
+
+def test_more_separators_and_no_confirmation_inside_a_tag():
+    from api.streaming import _resolve_pinned_title_scripts
+
+    assert _resolve_pinned_title_scripts("Hindi; English") == ()
+    assert _resolve_pinned_title_scripts("Chinese | English") == ()
+    assert _resolve_pinned_title_scripts("Serbian: Latin") == ("latin",)
+    assert _resolve_pinned_title_scripts("Punjabi: Shahmukhi") == ("arabic",)
+    # a region subtag and a modifier cannot confirm an unknown base
+    assert _resolve_pinned_title_scripts("xx_TH@thai") == ()
+    assert _resolve_pinned_title_scripts("eg_AR@arabic") == ()
+
+
+def test_latin_is_a_language():
+    from api.streaming import _resolve_pinned_title_scripts
+
+    assert _resolve_pinned_title_scripts("Latin") == ("latin",)
+    assert _resolve_pinned_title_scripts("Classical Latin") == ("latin",)
+    assert _resolve_pinned_title_scripts("la-Latn") == ("latin",)
+    assert _resolve_pinned_title_scripts("Latin American Spanish") == ("latin",)

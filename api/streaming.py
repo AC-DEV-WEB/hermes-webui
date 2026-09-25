@@ -4560,6 +4560,7 @@ def _dominant_script(text: str) -> str:
 # resolve.
 _TITLE_LANGUAGES = {
     'english': (('latin',), ('en',)),
+    'latin': (('latin',), ('la',)),
     'german': (('latin',), ('deutsch', 'de')),
     'french': (('latin',), ('francais', 'fr')),
     'spanish': (('latin',), ('espanol', 'castellano', 'es')),
@@ -4684,20 +4685,26 @@ _TITLE_LANGUAGE_QUALIFIERS = {
 
 
 def _title_pin_tokens(text: str, is_tag: bool) -> list:
-    """Split a folded title pin into tokens for ``_resolve_pinned_title_scripts``."""
-    tokens = []
-    for token in re.split(r'[\s\-_/()\[\],.+&\u2013\u2014]+', text):
-        if len(token) == 1:
-            # In a tag, a BCP 47 singleton ("x", "u") starts an extension or
-            # private-use section, so nothing from it on is read ("x-arab" is
-            # wholly private use). Outside a tag a lone character (the
-            # initials in "U.S. English") is skipped.
-            if is_tag:
-                break
-            continue
-        if token:
-            tokens.append(token)
-    return tokens
+    """Split a folded title pin into (token, bracketed) pairs.
+
+    ``bracketed`` is True for a word inside parentheses or square brackets,
+    which ``_resolve_pinned_title_scripts`` reads only as a qualifier.
+    """
+    pairs = []
+    for segment in re.finditer(r'[(\[][^)\]]*[)\]]?|[^(\[]+', text):
+        bracketed = segment.group(0)[0] in '(['
+        for token in re.split(r'[\s\-_/()\[\],.;:|+&\u2013\u2014]+', segment.group(0)):
+            if len(token) == 1:
+                # In a tag, a BCP 47 singleton ("x", "u") starts an extension
+                # or private-use section, so nothing from it on is read
+                # ("x-arab" is wholly private use). Outside a tag a lone
+                # character (the initials in "U.S. English") is skipped.
+                if is_tag:
+                    return pairs
+                continue
+            if token:
+                pairs.append((token, bracketed))
+    return pairs
 
 
 def _resolve_pinned_title_scripts(language: str) -> tuple:
@@ -4748,43 +4755,44 @@ def _resolve_pinned_title_scripts(language: str) -> tuple:
     # singletons), then subtags of at most eight. "Brazilian-Portuguese" is
     # not a tag.
     is_tag = re.fullmatch(r'[a-z]{1,3}(?:[-_][a-z0-9]{1,8})*', folded) is not None
-    tokens = _title_pin_tokens(folded, is_tag) + script_modifier
-    # A word in parentheses or brackets qualifies the language outside them
-    # and never names it: "Klingon (Arabic)" names no known language.
-    outside = set(_title_pin_tokens(re.sub(r'[(\[][^)\]]*[)\]]?', ' ', folded), is_tag))
+    pairs = _title_pin_tokens(folded, is_tag) + [(m, True) for m in script_modifier]
+    tokens = [token for token, _bracketed in pairs]
 
-    # In a tag only the first subtag is the language ("xx-Arabic" is an
-    # unknown language); in prose a name counts anywhere outside brackets.
+    # The tokens that name the language, by position. In a tag only the
+    # first subtag can ("xx-Arabic" is an unknown language); in prose a name
+    # counts anywhere outside brackets ("Klingon (Arabic)" names none).
     named = [
-        (token, _TITLE_LANGUAGE_IDENTITY[token])
-        for i, token in enumerate(tokens)
+        (i, _TITLE_LANGUAGE_IDENTITY[token])
+        for i, (token, bracketed) in enumerate(pairs)
         if token in _TITLE_LANGUAGE_IDENTITY
-        and (i == 0 if is_tag else (len(token) > 2 and token in outside))
+        and (i == 0 if is_tag else (len(token) > 2 and not bracketed))
     ]
-    if not named:
+    if not named and not is_tag:
         # "mn (Mongolian)": a code outside the brackets and its own language's
-        # name inside them name one language. "BE (French)" does not.
-        confirmed = {
-            _TITLE_LANGUAGE_IDENTITY[token] for token in outside if token in _TITLE_LANGUAGE_IDENTITY
-        } & {
-            _TITLE_LANGUAGE_IDENTITY[token] for token in tokens
-            if token not in outside and len(token) > 2 and token in _TITLE_LANGUAGE_IDENTITY
-        }
-        named = [(name, name) for name in confirmed]
-    languages = {name for _token, name in named}
-    if len(languages) > 1:
-        # "Punjabi (Arabic)": Arabic is the script here, not a second language.
-        languages = {name for token, name in named if token not in _TITLE_SCRIPT_QUALIFIERS}
+        # name inside them name one language together. "BE (French)" does not.
+        outside = {_TITLE_LANGUAGE_IDENTITY.get(t) for t, br in pairs if not br} - {None}
+        inside = {_TITLE_LANGUAGE_IDENTITY.get(t) for t, br in pairs if br and len(t) > 2} - {None}
+        if len(outside & inside) == 1:
+            agreed = (outside & inside).pop()
+            named = [(i, agreed) for i, t in enumerate(tokens) if _TITLE_LANGUAGE_IDENTITY.get(t) == agreed]
+    if len({name for _i, name in named}) > 1:
+        # "Punjabi (Arabic)", "Latin American Spanish": a name that is also a
+        # script qualifies the other language instead of naming a second one.
+        named = [(i, name) for i, name in named if tokens[i] not in _TITLE_SCRIPT_QUALIFIERS]
+    languages = {name for _i, name in named}
     if len(languages) != 1:
         return ()
     language_name = languages.pop()
+    naming = {i for i, _name in named}
 
+    # Every other token that names a script is an explicit qualifier, even
+    # when it spells the language itself ("th-Thai-Latn": Thai is the ISO
+    # 15924 code for the Thai script, and it conflicts with Latn).
     own = _TITLE_LANGUAGE_QUALIFIERS.get(language_name, {})
     scripts = {
         own.get(token) or _TITLE_SCRIPT_QUALIFIERS[token]
-        for token in tokens
-        if _TITLE_LANGUAGE_IDENTITY.get(token) != language_name
-        and (token in own or token in _TITLE_SCRIPT_QUALIFIERS)
+        for i, token in enumerate(tokens)
+        if i not in naming and (token in own or token in _TITLE_SCRIPT_QUALIFIERS)
     }
     if len(scripts) > 1:
         return ()
