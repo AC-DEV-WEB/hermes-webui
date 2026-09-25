@@ -137,9 +137,33 @@ pin:
   conversation does not use is rejected as drift. Pin a language the map
   knows to get cross-script titles.
 
-Language lookup is diacritic-insensitive and also matches individual tokens of
-a qualified name, so `Francais`, `Français`, `Traditional Chinese` and `pt-BR`
-all resolve to a script.
+A language written in two scripts in majority use accepts either by default:
+`Punjabi` accepts Gurmukhi and Shahmukhi (Arabic script), and `Mongolian`
+accepts Cyrillic and the traditional Mongolian script. `Serbian` has no default,
+because Cyrillic and Latin are both in wide use, so a bare `Serbian` pin keeps
+the conversation check.
+
+A script qualifier narrows a recognised language to one script. It can be an
+ISO 15924 code in a BCP 47 tag (`pa-Arab`, `pa-Guru`, `mn-Mong`, `kk-Latn`,
+`sr-Latn`, `zh-Hant`) or an English script name beside the language
+(`Punjabi (Arabic)`, `Malay (Jawi)`, `Mongolian (Traditional)`,
+`Serbian (Cyrillic)`). A qualifier is also how a minority script opts in: bare
+`Kazakh` accepts Cyrillic only, and `kk-Latn` accepts Latin.
+
+Anything ambiguous fails closed to the conversation check instead of widening
+what is accepted:
+
+- a qualifier on a language the map does not know (`Klingon-Latn`, `xx-Latn`);
+- two different qualifiers (`English-Latn-Cyrl`, `pa-Arab-Guru`); equivalent
+  ones collapse (`pa-Arab-Aran`);
+- two languages (`English French`);
+- a two-letter code outside a BCP 47 tag (`pt (Brazil)`, `No preference`),
+  because such codes collide with region codes and ordinary words. Write the
+  language name or a tag instead: `Portuguese (Brazil)` or `pt-BR`.
+
+Language lookup is diacritic-insensitive and matches a language name anywhere in
+the value, so `Francais`, `Français`, `Traditional Chinese`,
+`Brazilian Portuguese` and `pt-BR` all resolve.
 
 The pin affects session titles only. It does not change the language the
 assistant replies in, and it has no effect when

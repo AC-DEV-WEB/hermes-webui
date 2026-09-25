@@ -4543,94 +4543,104 @@ def _dominant_script(text: str) -> str:
     return ''
 
 
-# Maps a pinned ``auxiliary.title_generation.language`` value to the
-# ``_script_counts`` bucket its titles should be written in. A tuple value
-# names a language with more than one script in majority use today; a title
-# in any of them is accepted, and an explicit script qualifier on the pin (see
-# ``_TITLE_SCRIPT_QUALIFIERS``) narrows it to one. A script with minority use
-# (Kazakh in Latin or Arabic script, Malay in Jawi) is not listed here, so a
-# bare pin keeps rejecting it; the qualifier (``kk-Latn``, ``Malay (Jawi)``)
-# is how a user who writes that way opts in.
-#
-# Keys are lowercase English names and ISO 639-1 codes, ASCII only. This
-# module has to stay English-only (see
+# Languages a title pin can name, keyed by an English name. Each entry is
+# (default scripts, other aliases): the ``_script_counts`` buckets a title may
+# use when the pin carries no script qualifier, then the other spellings and
+# the ISO 639-1 code that name the same language. Aliases are lowercase ASCII
+# because this module has to stay English-only (see
 # test_title_generation_source_has_no_cjk_literals), so a pin written in its
-# own script is not mapped. Diacritics are folded before lookup.
+# own script is not recognized; diacritics are folded before lookup.
 #
-# Serbian is missing on purpose: it is written in both Cyrillic and Latin
-# with no majority either way, so an unqualified pin falls back to
-# conversation-based validation like anything else unmapped. ``sr-Latn`` and
-# ``Serbian (Cyrillic)`` resolve through the qualifier table.
-_TITLE_LANGUAGE_SCRIPTS = {
-    # latin
-    'english': 'latin', 'german': 'latin', 'deutsch': 'latin',
-    'french': 'latin', 'francais': 'latin',
-    'spanish': 'latin', 'espanol': 'latin', 'castellano': 'latin',
-    'portuguese': 'latin', 'portugues': 'latin',
-    'italian': 'latin', 'italiano': 'latin',
-    'dutch': 'latin', 'nederlands': 'latin',
-    'polish': 'latin', 'polski': 'latin',
-    'turkish': 'latin', 'turkce': 'latin',
-    'vietnamese': 'latin', 'indonesian': 'latin', 'malay': 'latin',
-    'swedish': 'latin', 'svenska': 'latin', 'norwegian': 'latin', 'norsk': 'latin',
-    'danish': 'latin', 'dansk': 'latin', 'finnish': 'latin', 'suomi': 'latin',
-    'czech': 'latin', 'slovak': 'latin', 'hungarian': 'latin', 'magyar': 'latin',
-    'romanian': 'latin', 'croatian': 'latin', 'catalan': 'latin',
-    'filipino': 'latin', 'tagalog': 'latin', 'swahili': 'latin',
-    'en': 'latin', 'de': 'latin', 'fr': 'latin', 'es': 'latin', 'pt': 'latin',
-    'it': 'latin', 'nl': 'latin', 'pl': 'latin', 'tr': 'latin', 'vi': 'latin',
-    'id': 'latin', 'ms': 'latin', 'sv': 'latin', 'no': 'latin', 'nb': 'latin',
-    'nn': 'latin', 'da': 'latin', 'fi': 'latin', 'cs': 'latin', 'sk': 'latin',
-    'hu': 'latin', 'ro': 'latin', 'hr': 'latin', 'ca': 'latin', 'tl': 'latin',
-    'sw': 'latin',
-    # cyrillic
-    'russian': 'cyrillic', 'ukrainian': 'cyrillic',
-    'bulgarian': 'cyrillic', 'belarusian': 'cyrillic', 'macedonian': 'cyrillic',
-    'ru': 'cyrillic', 'uk': 'cyrillic', 'bg': 'cyrillic', 'be': 'cyrillic', 'mk': 'cyrillic',
-    # cjk (one bucket for Han/Hiragana/Katakana/Hangul, same as _script_counts)
-    'japanese': 'cjk', 'chinese': 'cjk', 'mandarin': 'cjk', 'cantonese': 'cjk',
-    'korean': 'cjk',
-    'ja': 'cjk', 'zh': 'cjk', 'ko': 'cjk',
-    # scripts with a dedicated bucket
-    'arabic': 'arabic', 'ar': 'arabic',
-    'hebrew': 'hebrew', 'he': 'hebrew',
-    'greek': 'greek', 'el': 'greek',
-    'hindi': 'devanagari', 'marathi': 'devanagari', 'nepali': 'devanagari',
-    'hi': 'devanagari', 'mr': 'devanagari', 'ne': 'devanagari',
-    'thai': 'thai', 'th': 'thai',
-    'georgian': 'georgian', 'ka': 'georgian',
-    'armenian': 'armenian', 'hy': 'armenian',
-    'persian': 'arabic', 'farsi': 'arabic', 'urdu': 'arabic', 'pashto': 'arabic',
-    'fa': 'arabic', 'ur': 'arabic', 'ps': 'arabic',
-    'kazakh': 'cyrillic', 'kyrgyz': 'cyrillic', 'tajik': 'cyrillic',
-    'kk': 'cyrillic', 'ky': 'cyrillic', 'tg': 'cyrillic',
-    'yiddish': 'hebrew', 'yi': 'hebrew',
-    'sanskrit': 'devanagari', 'sa': 'devanagari',
-    'amharic': 'ethiopic', 'tigrinya': 'ethiopic', 'am': 'ethiopic', 'ti': 'ethiopic',
-    'bengali': 'bengali', 'bangla': 'bengali', 'bn': 'bengali',
-    'tamil': 'tamil', 'ta': 'tamil',
-    'telugu': 'telugu', 'te': 'telugu',
-    'kannada': 'kannada', 'kn': 'kannada',
-    'malayalam': 'malayalam', 'ml': 'malayalam',
-    'gujarati': 'gujarati', 'gu': 'gujarati',
-    'sinhala': 'sinhala', 'sinhalese': 'sinhala', 'si': 'sinhala',
-    'khmer': 'khmer', 'cambodian': 'khmer', 'km': 'khmer',
-    'burmese': 'myanmar', 'myanmar': 'myanmar', 'my': 'myanmar',
-    'tibetan': 'tibetan', 'bo': 'tibetan',
-    'lao': 'lao', 'lo': 'lao',
-    # two scripts in majority use
+# Two defaults mean two scripts in majority use today. A script with minority
+# use (Kazakh in Latin or Arabic script, Malay in Jawi) is left out, so a bare
+# pin keeps rejecting it and a qualifier (``kk-Latn``, ``Malay (Jawi)``) is how
+# a user who writes that way opts in. Serbian has no default at all: it is
+# written in Cyrillic and Latin with no majority, so ``Serbian`` alone keeps
+# the conversation check and only ``sr-Latn`` or ``Serbian (Cyrillic)``
+# resolve.
+_TITLE_LANGUAGES = {
+    'english': (('latin',), ('en',)),
+    'german': (('latin',), ('deutsch', 'de')),
+    'french': (('latin',), ('francais', 'fr')),
+    'spanish': (('latin',), ('espanol', 'castellano', 'es')),
+    'portuguese': (('latin',), ('portugues', 'pt')),
+    'italian': (('latin',), ('italiano', 'it')),
+    'dutch': (('latin',), ('nederlands', 'nl')),
+    'polish': (('latin',), ('polski', 'pl')),
+    'turkish': (('latin',), ('turkce', 'tr')),
+    'vietnamese': (('latin',), ('vi',)),
+    'indonesian': (('latin',), ('id',)),
+    'malay': (('latin',), ('ms',)),
+    'swedish': (('latin',), ('svenska', 'sv')),
+    'norwegian': (('latin',), ('norsk', 'no', 'nb', 'nn')),
+    'danish': (('latin',), ('dansk', 'da')),
+    'finnish': (('latin',), ('suomi', 'fi')),
+    'czech': (('latin',), ('cs',)),
+    'slovak': (('latin',), ('sk',)),
+    'hungarian': (('latin',), ('magyar', 'hu')),
+    'romanian': (('latin',), ('ro',)),
+    'croatian': (('latin',), ('hr',)),
+    'catalan': (('latin',), ('ca',)),
+    'filipino': (('latin',), ('tagalog', 'tl')),
+    'swahili': (('latin',), ('sw',)),
+    'russian': (('cyrillic',), ('ru',)),
+    'ukrainian': (('cyrillic',), ('uk',)),
+    'bulgarian': (('cyrillic',), ('bg',)),
+    'belarusian': (('cyrillic',), ('be',)),
+    'macedonian': (('cyrillic',), ('mk',)),
+    'kazakh': (('cyrillic',), ('kk',)),
+    'kyrgyz': (('cyrillic',), ('ky',)),
+    'tajik': (('cyrillic',), ('tg',)),
+    # cjk is one bucket for Han, Hiragana, Katakana and Hangul, as in _script_counts
+    'japanese': (('cjk',), ('ja',)),
+    'chinese': (('cjk',), ('mandarin', 'cantonese', 'zh')),
+    'korean': (('cjk',), ('ko',)),
+    'arabic': (('arabic',), ('ar',)),
+    'persian': (('arabic',), ('farsi', 'fa')),
+    'urdu': (('arabic',), ('ur',)),
+    'pashto': (('arabic',), ('ps',)),
+    'hebrew': (('hebrew',), ('he',)),
+    'yiddish': (('hebrew',), ('yi',)),
+    'greek': (('greek',), ('el',)),
+    'hindi': (('devanagari',), ('hi',)),
+    'marathi': (('devanagari',), ('mr',)),
+    'nepali': (('devanagari',), ('ne',)),
+    'sanskrit': (('devanagari',), ('sa',)),
+    'thai': (('thai',), ('th',)),
+    'georgian': (('georgian',), ('ka',)),
+    'armenian': (('armenian',), ('hy',)),
+    'amharic': (('ethiopic',), ('am',)),
+    'tigrinya': (('ethiopic',), ('ti',)),
+    'bengali': (('bengali',), ('bangla', 'bn')),
+    'tamil': (('tamil',), ('ta',)),
+    'telugu': (('telugu',), ('te',)),
+    'kannada': (('kannada',), ('kn',)),
+    'malayalam': (('malayalam',), ('ml',)),
+    'gujarati': (('gujarati',), ('gu',)),
+    'sinhala': (('sinhala',), ('sinhalese', 'si')),
+    'khmer': (('khmer',), ('cambodian', 'km')),
+    'burmese': (('myanmar',), ('myanmar', 'my')),
+    'tibetan': (('tibetan',), ('bo',)),
+    'lao': (('lao',), ('lo',)),
     # Punjabi: Gurmukhi in India, Shahmukhi (Arabic script) in Pakistan.
-    'punjabi': ('gurmukhi', 'arabic'), 'panjabi': ('gurmukhi', 'arabic'),
-    'pa': ('gurmukhi', 'arabic'),
+    'punjabi': (('gurmukhi', 'arabic'), ('panjabi', 'pa')),
     # Mongolian: Cyrillic in Mongolia, the traditional script in Inner Mongolia.
-    'mongolian': ('cyrillic', 'mongolian'), 'mn': ('cyrillic', 'mongolian'),
+    'mongolian': (('cyrillic', 'mongolian'), ('mn',)),
+    'serbian': ((), ('srpski', 'sr')),
 }
 
-# Script qualifiers a pin can carry beside its language token: ISO 15924
-# codes as used in BCP 47 tags (``pa-Arab``, ``sr-Latn``, ``zh-Hant``) and the
-# English names people write in parentheses (``Punjabi (Arabic)``). When one
-# is present it replaces the language's own entry, so ``pa-Arab`` accepts
-# Shahmukhi alone and ``pa-Guru`` Gurmukhi alone.
+# Every alias, the English name included, to the language it names.
+_TITLE_LANGUAGE_IDENTITY = {
+    alias: name
+    for name, (_defaults, aliases) in _TITLE_LANGUAGES.items()
+    for alias in (name,) + aliases
+}
+
+
+# Script qualifiers a pin can carry beside its language: ISO 15924 codes as
+# used in BCP 47 tags (``pa-Arab``, ``sr-Latn``, ``zh-Hant``) and the English
+# names people write in parentheses (``Punjabi (Arabic)``). One qualifier
+# replaces the language's defaults, so ``pa-Arab`` accepts Shahmukhi alone.
 _TITLE_SCRIPT_QUALIFIERS = {
     'latn': 'latin', 'latin': 'latin',
     'roman': 'latin', 'romanized': 'latin', 'romanised': 'latin',
@@ -4647,11 +4657,12 @@ _TITLE_SCRIPT_QUALIFIERS = {
     'mlym': 'malayalam', 'gujr': 'gujarati', 'sinh': 'sinhala', 'khmr': 'khmer',
     'mymr': 'myanmar', 'tibt': 'tibetan', 'laoo': 'lao',
     'hira': 'cjk', 'kana': 'cjk', 'hang': 'cjk',
+    'hiragana': 'cjk', 'katakana': 'cjk', 'hangul': 'cjk', 'kanji': 'cjk', 'hanzi': 'cjk',
 }
 # Every bucket's own name is a qualifier too, so "Punjabi (Hebrew)" and
-# "Sanskrit (Bengali)" narrow the same way their ISO codes do. A qualifier
-# that is also the pin's language token is not read as a qualifier, so a
-# bare "Mongolian" or "Tamil" still resolves through the language map.
+# "Sanskrit (Bengali)" narrow the same way their ISO codes do. A token that
+# names the pin's own language is never its qualifier, so a bare "Mongolian"
+# or "Tamil" keeps the language's defaults.
 for _bucket in {'latin', 'cjk', 'cyrillic', 'arabic', 'hebrew', 'greek', 'devanagari'} | {
     mapped for _keyword, mapped in _SCRIPT_NAME_KEYWORDS
 }:
@@ -4663,22 +4674,32 @@ del _bucket
 # sit in the general table.
 _TITLE_LANGUAGE_QUALIFIERS = {
     'mongolian': {'traditional': 'mongolian', 'classical': 'mongolian'},
-    'mn': {'traditional': 'mongolian', 'classical': 'mongolian'},
 }
 
 
 def _resolve_pinned_title_scripts(language: str) -> tuple:
     """Map a pinned title language to the script buckets a title may use, or ().
 
-    Diacritics are folded first, so "Francais", "Gurmukhi" and their
-    accented spellings all resolve. The language is the first token that
-    names one ("Brazilian Portuguese", "pt-BR", "Egyptian Arabic"). Any other
-    token that names a script is an explicit qualifier and wins over the
-    language's own entry ("pa-Arab", "Punjabi (Arabic)", "Latin Egyptian
-    Arabic"). In a BCP 47 tag, a singleton such as ``x`` starts an
-    extension or private-use section, so nothing from it on is read. With no language token,
-    the qualifiers alone decide ("sr-Latn", "Cyrillic"). Returns () for blank or unrecognized values, which callers treat
-    as "validate against the conversation instead" (#3293 behaviour).
+    The pin has to name exactly one known language. A language name
+    ("Portuguese", "Brazilian Portuguese", "Lao") counts wherever it sits; a
+    two-letter code counts only as the first subtag of a BCP 47 tag ("pt",
+    "pt-BR", "ms-MY"), because elsewhere it collides with region codes and
+    English words ("Slovenian (SI)", "BE French", "No preference").
+
+    With a language established, at most one script qualifier may narrow it
+    ("pa-Arab", "Punjabi (Arabic)", "sr-Latn", "Mongolian (Traditional)").
+    A name that is both a language and a script ("Arabic") is read as the
+    qualifier when another language is present. Equivalent qualifiers
+    collapse ("Punjabi (Arabic, Shahmukhi)", "pa-Arab-Aran").
+
+    Everything else fails closed to (), which callers treat as "validate
+    against the conversation instead" (#3293 behaviour): an unknown language
+    even with a qualifier ("Klingon-Latn", "xx-Latn"), two languages
+    ("English French"), two different qualifiers ("English-Latn-Cyrl"), and a
+    language with no default script and no qualifier ("Serbian").
+
+    Diacritics are folded first. In a tag, a singleton such as ``x`` starts
+    an extension or private-use section, so nothing from it on is read.
     """
     folded = ''.join(
         ch for ch in unicodedata.normalize('NFKD', str(language or '').strip().lower())
@@ -4696,44 +4717,38 @@ def _resolve_pinned_title_scripts(language: str) -> tuple:
             # In a tag, a BCP 47 singleton ("x", "u") starts an extension or
             # private-use section, so nothing from it on is read ("x-arab" is
             # wholly private use). Outside a tag a lone character (the
-            # initials in "U.S. English" or "U.S.English") is skipped.
+            # initials in "U.S. English") is skipped.
             if is_tag:
                 break
             continue
         if token:
             tokens.append(token)
-    # Known limitation: a code beside a language whose name is also a script
-    # name ("mn (Mongolian)", "th - Thai (Romanized)") is ambiguous, and the
-    # name is taken as the language. Every rule tried for that shape fixed
-    # one form and broke another; the ISO 15924 form ("mn-Mong") is exact.
-    # A language name ("Portuguese", "Lao") names the language wherever it
-    # sits. A two-letter code does only as the first token and only when no
-    # name is present, because a region code collides with language keys:
-    # the "MY" in "ms-MY" is Malaysia, not Burmese; the "SI" in "Slovenian
-    # (SI)" is not Sinhala; the "BE" in "BE French" is not Belarusian.
-    lang_at = next(
-        (i for i, t in enumerate(tokens) if len(t) > 2 and t in _TITLE_LANGUAGE_SCRIPTS),
-        None,
-    )
-    if lang_at is None and tokens and len(tokens[0]) == 2 and tokens[0] in _TITLE_LANGUAGE_SCRIPTS:
-        lang_at = 0
-    if lang_at is None:
-        # An unmapped language with a script qualifier ("sr-Latn", "Serbian
-        # (Cyrillic)") resolves to the qualifier; a bare script name
-        # ("Cyrillic") is its own qualifier.
-        qualified = [_TITLE_SCRIPT_QUALIFIERS[t] for t in tokens if t in _TITLE_SCRIPT_QUALIFIERS]
-        return tuple(dict.fromkeys(qualified))
-    lang = tokens[lang_at]
-    own = _TITLE_LANGUAGE_QUALIFIERS.get(lang, {})
-    qualified = [
-        own.get(t) or _TITLE_SCRIPT_QUALIFIERS[t]
-        for i, t in enumerate(tokens)
-        if i != lang_at and (t in own or t in _TITLE_SCRIPT_QUALIFIERS)
+
+    named = [
+        (token, _TITLE_LANGUAGE_IDENTITY[token])
+        for i, token in enumerate(tokens)
+        if token in _TITLE_LANGUAGE_IDENTITY and (len(token) > 2 or (i == 0 and is_tag))
     ]
-    if qualified:
-        return tuple(dict.fromkeys(qualified))
-    hit = _TITLE_LANGUAGE_SCRIPTS[lang]
-    return hit if isinstance(hit, tuple) else (hit,)
+    languages = {name for _token, name in named}
+    if len(languages) > 1:
+        # "Punjabi (Arabic)": Arabic is the script here, not a second language.
+        languages = {name for token, name in named if token not in _TITLE_SCRIPT_QUALIFIERS}
+    if len(languages) != 1:
+        return ()
+    language_name = languages.pop()
+
+    own = _TITLE_LANGUAGE_QUALIFIERS.get(language_name, {})
+    scripts = {
+        own.get(token) or _TITLE_SCRIPT_QUALIFIERS[token]
+        for token in tokens
+        if _TITLE_LANGUAGE_IDENTITY.get(token) != language_name
+        and (token in own or token in _TITLE_SCRIPT_QUALIFIERS)
+    }
+    if len(scripts) > 1:
+        return ()
+    if scripts:
+        return (scripts.pop(),)
+    return _TITLE_LANGUAGES[language_name][0]
 
 
 def _script_drift(title: str, expected_script) -> bool:
@@ -4874,7 +4889,7 @@ def _generated_title_language_mismatch(user_text: str, title: str, pinned_langua
     single-script title agrees with itself, so an English conversation with
     an unmapped pin accepted a Russian title that an unpinned run rejects.
     Cross-script languages this module means to support are listed in
-    ``_TITLE_LANGUAGE_SCRIPTS`` with a bucket of their own (Amharic maps to
+    ``_TITLE_LANGUAGES`` with a bucket of their own (Amharic maps to
     ``ethiopic``, Bengali to ``bengali``, and so on), which is what makes a
     compliant title in one of them survive validation.
     """

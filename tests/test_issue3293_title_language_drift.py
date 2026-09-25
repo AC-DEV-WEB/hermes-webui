@@ -1024,7 +1024,10 @@ def test_outside_a_tag_a_two_letter_code_is_the_language_only_first():
     ) is False
     assert _resolve_pinned_title_scripts("Aymara (BO)") == ()
     assert _resolve_pinned_title_scripts("sl\u2013SI") == ()
-    assert _resolve_pinned_title_scripts("pt (Brazil)") == ("latin",)
+    # a two-letter code outside a tag is not trusted as the language
+    assert _resolve_pinned_title_scripts("pt (Brazil)") == ()
+    assert _resolve_pinned_title_scripts("No preference") == ()
+    assert _resolve_pinned_title_scripts("pt-BR") == ("latin",)
     assert _resolve_pinned_title_scripts("Punjabi (PK)") == ("gurmukhi", "arabic")
     assert _resolve_pinned_title_scripts("pa-Aran") == ("arabic",)
 
@@ -1049,7 +1052,7 @@ def test_hyphenated_names_and_leading_region_codes():
     # a primary subtag longer than three letters is not a tag, so a lone "x"
     # is skipped and the qualifier after it still counts
     assert _resolve_pinned_title_scripts("Kazakh-x-Latin") == ("latin",)
-    assert _resolve_pinned_title_scripts("Arabic [Hebrew]") == ("hebrew",)
+    assert _resolve_pinned_title_scripts("Punjabi [Arabic]") == ("arabic",)
 
 
 def test_iso_15924_codes_narrow_like_script_names():
@@ -1077,3 +1080,91 @@ def test_serbian_resolves_only_with_a_qualifier():
     assert _resolve_pinned_title_scripts("Serbian (Cyrillic)") == ("cyrillic",)
     assert _resolve_pinned_title_scripts("zh-Hant-TW") == ("cjk",)
     assert _resolve_pinned_title_scripts("pt-BR") == ("latin",)
+
+
+def _title_via_both_wrappers(monkeypatch, pin, user_text, title):
+    """Run one generated title through the agent and aux title wrappers."""
+    from api import streaming
+
+    monkeypatch.setattr(streaming, "_get_aux_title_config", lambda: {"language": pin})
+    monkeypatch.setattr(streaming, "generate_title_raw_via_agent", _fake_transport(title, []))
+    monkeypatch.setattr(streaming, "generate_title_raw_via_aux", _fake_transport(title, []))
+    agent = streaming._generate_llm_session_title_for_agent(object(), user_text, "OK.")
+    aux = streaming._generate_llm_session_title_via_aux(user_text, "OK.")
+    return agent[:2], aux[:2]
+
+
+def test_unknown_language_with_a_qualifier_keeps_the_conversation_check(monkeypatch):
+    """A qualifier only narrows a recognized language. With an unknown base
+    the pin is unresolved and the #3293 conversation check stays active: a
+    Latin title for a Japanese conversation is still drift."""
+    from api.streaming import _resolve_pinned_title_scripts
+
+    for pin in ("Klingon-Latn", "xx-Latn", "Klingon (Latin)", "und-Latn", "Cyrillic"):
+        assert _resolve_pinned_title_scripts(pin) == (), pin
+    agent, aux = _title_via_both_wrappers(
+        monkeypatch, "Klingon-Latn", "\u30a8\u30e9\u30fc\u3092\u76f4\u3059\u65b9\u6cd5", "Error fix guide"
+    )
+    assert agent == (None, "llm_language_mismatch")
+    assert aux == (None, "llm_language_mismatch_aux")
+
+
+def test_conflicting_qualifiers_fail_closed(monkeypatch):
+    """Two different qualifiers do not form a union; the pin is unresolved
+    and a Cyrillic title for an English conversation is still drift."""
+    from api.streaming import _resolve_pinned_title_scripts
+
+    for pin in ("English-Latn-Cyrl", "pa-Arab-Guru", "Punjabi (Arabic, Gurmukhi)", "sr-Latn-Cyrl"):
+        assert _resolve_pinned_title_scripts(pin) == (), pin
+    agent, aux = _title_via_both_wrappers(
+        monkeypatch, "English-Latn-Cyrl", "How do I fix this error?",
+        "\u0418\u0441\u043f\u0440\u0430\u0432\u043b\u0435\u043d\u0438\u0435 \u043e\u0448\u0438\u0431\u043a\u0438",
+    )
+    assert agent == (None, "llm_language_mismatch")
+    assert aux == (None, "llm_language_mismatch_aux")
+
+
+def test_equivalent_qualifiers_collapse():
+    from api.streaming import _resolve_pinned_title_scripts
+
+    assert _resolve_pinned_title_scripts("pa-Arab-Aran") == ("arabic",)
+    assert _resolve_pinned_title_scripts("Punjabi (Arabic, Shahmukhi)") == ("arabic",)
+
+
+def test_two_languages_fail_closed():
+    """A pin naming two languages has no single answer. A language name that
+    is also a script name beside another language is that language's script
+    ("Punjabi (Arabic)"); two of those together are ambiguous."""
+    from api.streaming import _resolve_pinned_title_scripts
+
+    assert _resolve_pinned_title_scripts("English French") == ()
+    assert _resolve_pinned_title_scripts("Hebrew-script Arabic") == ()
+    assert _resolve_pinned_title_scripts("Arabic [Hebrew]") == ()
+    assert _resolve_pinned_title_scripts("Punjabi (Arabic)") == ("arabic",)
+
+
+def test_serbian_is_known_but_has_no_default(monkeypatch):
+    """Serbian is a recognized language with no bare default script, so a
+    qualifier resolves it and a bare pin keeps the conversation check."""
+    from api.streaming import _resolve_pinned_title_scripts
+
+    assert _resolve_pinned_title_scripts("Serbian") == ()
+    assert _resolve_pinned_title_scripts("sr") == ()
+    assert _resolve_pinned_title_scripts("sr-Cyrl") == ("cyrillic",)
+    agent, aux = _title_via_both_wrappers(
+        monkeypatch, "sr-Latn", "Kako da popravim gre\u0161ku?", "Popravka gre\u0161ke"
+    )
+    assert agent == ("Popravka gre\u0161ke", "llm_stub")
+    assert aux == ("Popravka gre\u0161ke", "llm_stub")
+
+
+def test_a_code_beside_its_own_language_name_is_one_language():
+    """"mn (Mongolian)" and "th - Thai (Romanized)" name one language twice.
+    Outside a tag the code does not count, so the name decides and a real
+    qualifier still narrows."""
+    from api.streaming import _resolve_pinned_title_scripts
+
+    assert _resolve_pinned_title_scripts("mn (Mongolian)") == ("cyrillic", "mongolian")
+    assert _resolve_pinned_title_scripts("mn - Mongolian") == ("cyrillic", "mongolian")
+    assert _resolve_pinned_title_scripts("th - Thai (Romanized)") == ("latin",)
+    assert _resolve_pinned_title_scripts("English (Katakana)") == ("cjk",)
