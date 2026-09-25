@@ -973,6 +973,20 @@ def test_lone_characters_outside_a_tag_do_not_end_parsing():
     assert _resolve_pinned_title_scripts("Punjabi\u2013Shahmukhi") == ("arabic",)
     assert _resolve_pinned_title_scripts("Punjabi(P.K.,Shahmukhi)") == ("arabic",)
     assert _resolve_pinned_title_scripts("Japanese (Romaji)") == ("latin",)
+    assert _resolve_pinned_title_scripts("sr\u2010Latn") == ("latin",)
+
+
+def test_every_script_bucket_name_is_a_qualifier():
+    from api.streaming import _resolve_pinned_title_scripts
+
+    assert _resolve_pinned_title_scripts("Punjabi (Hebrew)") == ("hebrew",)
+    assert _resolve_pinned_title_scripts("Punjabi (Greek)") == ("greek",)
+    assert _resolve_pinned_title_scripts("Sanskrit (Bengali)") == ("bengali",)
+    assert _resolve_pinned_title_scripts("Cyrillic Mongolian") == ("cyrillic",)
+    # a bucket name that is the language itself is not a qualifier
+    assert _resolve_pinned_title_scripts("Mongolian") == ("cyrillic", "mongolian")
+    assert _resolve_pinned_title_scripts("Tamil") == ("tamil",)
+    assert _resolve_pinned_title_scripts("Ancient Greek") == ("greek",)
 
 
 def test_a_singleton_ends_a_tag_wherever_it_sits():

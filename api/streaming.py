@@ -4639,6 +4639,15 @@ _TITLE_SCRIPT_QUALIFIERS = {
     'hans': 'cjk', 'hant': 'cjk', 'hani': 'cjk', 'jpan': 'cjk', 'kore': 'cjk',
     'hebr': 'hebrew', 'grek': 'greek',
 }
+# Every bucket's own name is a qualifier too, so "Punjabi (Hebrew)" and
+# "Sanskrit (Bengali)" narrow the same way their ISO codes do. A qualifier
+# that is also the pin's language token is not read as a qualifier, so a
+# bare "Mongolian" or "Tamil" still resolves through the language map.
+for _bucket in {'latin', 'cjk', 'cyrillic', 'arabic', 'hebrew', 'greek', 'devanagari'} | {
+    mapped for _keyword, mapped in _SCRIPT_NAME_KEYWORDS
+}:
+    _TITLE_SCRIPT_QUALIFIERS.setdefault(_bucket, _bucket)
+del _bucket
 
 # Qualifiers that mean a script only beside one language: "Traditional"
 # names the Mongolian script for Mongolian and Han for Chinese, so it cannot
@@ -4670,7 +4679,7 @@ def _resolve_pinned_title_scripts(language: str) -> tuple:
         return ()
     is_tag = re.fullmatch(r'[a-z0-9]+(?:[-_][a-z0-9]+)*', folded) is not None
     tokens = []
-    for token in re.split(r'[\s\-_/(),.+&\u2013\u2014]+', folded):
+    for token in re.split(r'[\s\-_/(),.+&\u2010\u2011\u2013\u2014\u2212]+', folded):
         if len(token) == 1:
             # In a tag, a BCP 47 singleton ("x", "u") starts an extension or
             # private-use section, so nothing from it on is read ("x-arab" is
