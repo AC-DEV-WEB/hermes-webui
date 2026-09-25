@@ -1100,8 +1100,15 @@ def test_unknown_language_with_a_qualifier_keeps_the_conversation_check(monkeypa
     Latin title for a Japanese conversation is still drift."""
     from api.streaming import _resolve_pinned_title_scripts
 
-    for pin in ("Klingon-Latn", "xx-Latn", "Klingon (Latin)", "und-Latn", "Cyrillic"):
+    for pin in ("Klingon-Latn", "xx-Latn", "Klingon (Latin)", "und-Latn", "Cyrillic",
+                "Klingon (Arabic)", "xx-Arabic", "xx-Thai", "BE (French)"):
         assert _resolve_pinned_title_scripts(pin) == (), pin
+    agent, aux = _title_via_both_wrappers(
+        monkeypatch, "Klingon (Arabic)", "How do I fix this error?",
+        "\u0625\u0635\u0644\u0627\u062d \u0627\u0644\u062e\u0637\u0623",
+    )
+    assert agent == (None, "llm_language_mismatch")
+    assert aux == (None, "llm_language_mismatch_aux")
     agent, aux = _title_via_both_wrappers(
         monkeypatch, "Klingon-Latn", "\u30a8\u30e9\u30fc\u3092\u76f4\u3059\u65b9\u6cd5", "Error fix guide"
     )
@@ -1139,7 +1146,8 @@ def test_two_languages_fail_closed():
 
     assert _resolve_pinned_title_scripts("English French") == ()
     assert _resolve_pinned_title_scripts("Hebrew-script Arabic") == ()
-    assert _resolve_pinned_title_scripts("Arabic [Hebrew]") == ()
+    # a bracketed word only qualifies, so this is Arabic in Hebrew script
+    assert _resolve_pinned_title_scripts("Arabic [Hebrew]") == ("hebrew",)
     assert _resolve_pinned_title_scripts("Punjabi (Arabic)") == ("arabic",)
 
 
@@ -1168,3 +1176,34 @@ def test_a_code_beside_its_own_language_name_is_one_language():
     assert _resolve_pinned_title_scripts("mn - Mongolian") == ("cyrillic", "mongolian")
     assert _resolve_pinned_title_scripts("th - Thai (Romanized)") == ("latin",)
     assert _resolve_pinned_title_scripts("English (Katakana)") == ("cjk",)
+
+
+def test_languages_with_no_default_and_more_identities():
+    """Bosnian and Uzbek join Serbian as known languages with no bare
+    default; qualified tags that resolved before keep resolving."""
+    from api.streaming import _resolve_pinned_title_scripts
+
+    for pin, want in {
+        "bs-Latn": ("latin",), "bs-Cyrl": ("cyrillic",), "Bosnian": (),
+        "uz-Cyrl": ("cyrillic",), "Uzbek (Latin)": ("latin",), "Uzbek": (),
+        "az-Latn": ("latin",), "ug-Arab": ("arabic",), "ks-Deva": ("devanagari",),
+        "yue-Hant": ("cjk",), "cmn-Hans": ("cjk",),
+    }.items():
+        assert _resolve_pinned_title_scripts(pin) == want, pin
+
+
+def test_bracketed_script_names_qualify_a_language_that_is_also_a_script():
+    from api.streaming import _resolve_pinned_title_scripts
+
+    assert _resolve_pinned_title_scripts("Tamil (Arabic)") == ("arabic",)
+    assert _resolve_pinned_title_scripts("Thai (Lao)") == ("lao",)
+    assert _resolve_pinned_title_scripts("mn (Mongolian)") == ("cyrillic", "mongolian")
+    assert _resolve_pinned_title_scripts("ar (Arabic)") == ("arabic",)
+
+
+def test_posix_locale_suffix_is_ignored():
+    from api.streaming import _resolve_pinned_title_scripts
+
+    assert _resolve_pinned_title_scripts("en_US.UTF-8") == ("latin",)
+    assert _resolve_pinned_title_scripts("fr_FR.UTF-8") == ("latin",)
+    assert _resolve_pinned_title_scripts("zh-Hant-u-nu-hanidec") == ("cjk",)

@@ -4554,9 +4554,9 @@ def _dominant_script(text: str) -> str:
 # Two defaults mean two scripts in majority use today. A script with minority
 # use (Kazakh in Latin or Arabic script, Malay in Jawi) is left out, so a bare
 # pin keeps rejecting it and a qualifier (``kk-Latn``, ``Malay (Jawi)``) is how
-# a user who writes that way opts in. Serbian has no default at all: it is
-# written in Cyrillic and Latin with no majority, so ``Serbian`` alone keeps
-# the conversation check and only ``sr-Latn`` or ``Serbian (Cyrillic)``
+# a user who writes that way opts in. Serbian, Bosnian and Uzbek have no
+# default at all: each is written in Cyrillic and Latin, so ``Serbian`` alone
+# keeps the conversation check and only ``sr-Latn`` or ``Serbian (Cyrillic)``
 # resolve.
 _TITLE_LANGUAGES = {
     'english': (('latin',), ('en',)),
@@ -4589,11 +4589,14 @@ _TITLE_LANGUAGES = {
     'belarusian': (('cyrillic',), ('be',)),
     'macedonian': (('cyrillic',), ('mk',)),
     'kazakh': (('cyrillic',), ('kk',)),
+    'azerbaijani': (('latin',), ('azeri', 'az')),
+    'uyghur': (('arabic',), ('uighur', 'ug')),
+    'kashmiri': (('arabic',), ('ks',)),
     'kyrgyz': (('cyrillic',), ('ky',)),
     'tajik': (('cyrillic',), ('tg',)),
     # cjk is one bucket for Han, Hiragana, Katakana and Hangul, as in _script_counts
     'japanese': (('cjk',), ('ja',)),
-    'chinese': (('cjk',), ('mandarin', 'cantonese', 'zh')),
+    'chinese': (('cjk',), ('mandarin', 'cantonese', 'zh', 'cmn', 'yue')),
     'korean': (('cjk',), ('ko',)),
     'arabic': (('arabic',), ('ar',)),
     'persian': (('arabic',), ('farsi', 'fa')),
@@ -4627,6 +4630,9 @@ _TITLE_LANGUAGES = {
     # Mongolian: Cyrillic in Mongolia, the traditional script in Inner Mongolia.
     'mongolian': (('cyrillic', 'mongolian'), ('mn',)),
     'serbian': ((), ('srpski', 'sr')),
+    # Bosnian and Uzbek are written in Latin and Cyrillic, like Serbian.
+    'bosnian': ((), ('bs',)),
+    'uzbek': ((), ('uz',)),
 }
 
 # Every alias, the English name included, to the language it names.
@@ -4677,14 +4683,33 @@ _TITLE_LANGUAGE_QUALIFIERS = {
 }
 
 
+def _title_pin_tokens(text: str, is_tag: bool) -> list:
+    """Split a folded title pin into tokens for ``_resolve_pinned_title_scripts``."""
+    tokens = []
+    for token in re.split(r'[\s\-_/()\[\],.+&\u2013\u2014]+', text):
+        if len(token) == 1:
+            # In a tag, a BCP 47 singleton ("x", "u") starts an extension or
+            # private-use section, so nothing from it on is read ("x-arab" is
+            # wholly private use). Outside a tag a lone character (the
+            # initials in "U.S. English") is skipped.
+            if is_tag:
+                break
+            continue
+        if token:
+            tokens.append(token)
+    return tokens
+
+
 def _resolve_pinned_title_scripts(language: str) -> tuple:
     """Map a pinned title language to the script buckets a title may use, or ().
 
-    The pin has to name exactly one known language. A language name
-    ("Portuguese", "Brazilian Portuguese", "Lao") counts wherever it sits; a
-    two-letter code counts only as the first subtag of a BCP 47 tag ("pt",
-    "pt-BR", "ms-MY"), because elsewhere it collides with region codes and
-    English words ("Slovenian (SI)", "BE French", "No preference").
+    The pin has to name exactly one known language. In a BCP 47 tag that is
+    the first subtag ("pt", "pt-BR", "ms-MY"); a POSIX locale suffix
+    ("en_US.UTF-8") is dropped first. In prose it is a language name
+    ("Portuguese", "Brazilian Portuguese", "Lao") anywhere outside brackets.
+    A two-letter code in prose collides with region codes and English words
+    ("Slovenian (SI)", "BE French", "No preference") and never counts, and a
+    bracketed word only qualifies ("Klingon (Arabic)" names no language).
 
     With a language established, at most one script qualifier may narrow it
     ("pa-Arab", "Punjabi (Arabic)", "sr-Latn", "Mongolian (Traditional)").
@@ -4707,28 +4732,38 @@ def _resolve_pinned_title_scripts(language: str) -> tuple:
     ).translate({0x2010: '-', 0x2011: '-', 0x2212: '-'})
     if not folded:
         return ()
+    # A POSIX locale ("en_US.UTF-8", "sr_RS@latin") is a tag plus an encoding
+    # or modifier suffix, which says nothing about the script.
+    locale = re.fullmatch(r'([a-z]{2,3}(?:[-_][a-z0-9]{2,8})*)[.@][a-z0-9_.@-]+', folded)
+    if locale:
+        folded = locale.group(1)
     # BCP 47 shape: a primary subtag of one to three letters (x and i are
     # singletons), then subtags of at most eight. "Brazilian-Portuguese" is
     # not a tag.
     is_tag = re.fullmatch(r'[a-z]{1,3}(?:[-_][a-z0-9]{1,8})*', folded) is not None
-    tokens = []
-    for token in re.split(r'[\s\-_/()\[\],.+&\u2013\u2014]+', folded):
-        if len(token) == 1:
-            # In a tag, a BCP 47 singleton ("x", "u") starts an extension or
-            # private-use section, so nothing from it on is read ("x-arab" is
-            # wholly private use). Outside a tag a lone character (the
-            # initials in "U.S. English") is skipped.
-            if is_tag:
-                break
-            continue
-        if token:
-            tokens.append(token)
+    tokens = _title_pin_tokens(folded, is_tag)
+    # A word in parentheses or brackets qualifies the language outside them
+    # and never names it: "Klingon (Arabic)" names no known language.
+    outside = set(_title_pin_tokens(re.sub(r'[(\[][^)\]]*[)\]]?', ' ', folded), is_tag))
 
+    # In a tag only the first subtag is the language ("xx-Arabic" is an
+    # unknown language); in prose a name counts anywhere outside brackets.
     named = [
         (token, _TITLE_LANGUAGE_IDENTITY[token])
         for i, token in enumerate(tokens)
-        if token in _TITLE_LANGUAGE_IDENTITY and (len(token) > 2 or (i == 0 and is_tag))
+        if token in _TITLE_LANGUAGE_IDENTITY
+        and (i == 0 if is_tag else (len(token) > 2 and token in outside))
     ]
+    if not named:
+        # "mn (Mongolian)": a code outside the brackets and its own language's
+        # name inside them name one language. "BE (French)" does not.
+        confirmed = {
+            _TITLE_LANGUAGE_IDENTITY[token] for token in outside if token in _TITLE_LANGUAGE_IDENTITY
+        } & {
+            _TITLE_LANGUAGE_IDENTITY[token] for token in tokens
+            if token not in outside and len(token) > 2 and token in _TITLE_LANGUAGE_IDENTITY
+        }
+        named = [(name, name) for name in confirmed]
     languages = {name for _token, name in named}
     if len(languages) > 1:
         # "Punjabi (Arabic)": Arabic is the script here, not a second language.

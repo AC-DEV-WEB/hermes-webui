@@ -139,9 +139,9 @@ pin:
 
 A language written in two scripts in majority use accepts either by default:
 `Punjabi` accepts Gurmukhi and Shahmukhi (Arabic script), and `Mongolian`
-accepts Cyrillic and the traditional Mongolian script. `Serbian` has no default,
-because Cyrillic and Latin are both in wide use, so a bare `Serbian` pin keeps
-the conversation check.
+accepts Cyrillic and the traditional Mongolian script. `Serbian`, `Bosnian` and
+`Uzbek` have no default, because Cyrillic and Latin are both in wide use, so a
+bare pin naming one of them keeps the conversation check.
 
 A script qualifier narrows a recognised language to one script. It can be an
 ISO 15924 code in a BCP 47 tag (`pa-Arab`, `pa-Guru`, `mn-Mong`, `kk-Latn`,
@@ -153,7 +153,8 @@ ISO 15924 code in a BCP 47 tag (`pa-Arab`, `pa-Guru`, `mn-Mong`, `kk-Latn`,
 Anything ambiguous fails closed to the conversation check instead of widening
 what is accepted:
 
-- a qualifier on a language the map does not know (`Klingon-Latn`, `xx-Latn`);
+- a qualifier on a language the map does not know (`Klingon-Latn`, `xx-Latn`,
+  `Klingon (Arabic)`);
 - two different qualifiers (`English-Latn-Cyrl`, `pa-Arab-Guru`); equivalent
   ones collapse (`pa-Arab-Aran`);
 - two languages (`English French`);
@@ -161,9 +162,12 @@ what is accepted:
   because such codes collide with region codes and ordinary words. Write the
   language name or a tag instead: `Portuguese (Brazil)` or `pt-BR`.
 
-Language lookup is diacritic-insensitive and matches a language name anywhere in
-the value, so `Francais`, `Français`, `Traditional Chinese`,
-`Brazilian Portuguese` and `pt-BR` all resolve.
+Language lookup is diacritic-insensitive. In a BCP 47 tag the language is the
+first subtag, and a POSIX locale suffix is ignored (`en_US.UTF-8`). Otherwise a
+language name counts anywhere outside brackets, so `Francais`, `Français`,
+`Traditional Chinese` and `Brazilian Portuguese` resolve. A word in brackets only
+qualifies: `Tamil (Arabic)` is Tamil in Arabic script, and `mn (Mongolian)` is
+Mongolian because the code and the name agree.
 
 The pin affects session titles only. It does not change the language the
 assistant replies in, and it has no effect when
