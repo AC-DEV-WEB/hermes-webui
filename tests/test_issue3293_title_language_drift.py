@@ -947,7 +947,7 @@ def test_punjabi_pin_accepts_a_switch_between_its_scripts():
     assert _generated_title_language_mismatch(SHAHMUKHI_TITLE, GURMUKHI_TITLE, "Punjabi") is False
 
 
-def test_qualifier_beats_the_language_token_wherever_it_sits():
+def test_qualifier_position_and_two_script_named_languages():
     from api.streaming import _resolve_pinned_title_scripts
 
     assert _resolve_pinned_title_scripts("Egyptian Arabic") == ("arabic",)
@@ -1285,8 +1285,15 @@ def test_native_name_with_the_english_name_bracketed():
     assert _resolve_pinned_title_scripts("\u0420\u0443\u0441\u0441\u043a\u0438\u0439 (Russian)") == ("cyrillic",)
     assert _resolve_pinned_title_scripts("\u0939\u093f\u0928\u094d\u0926\u0940 (Hindi)") == ("devanagari",)
     assert _resolve_pinned_title_scripts("\u0e44\u0e17\u0e22 (Thai)") == ("thai",)
-    # an ASCII word outside is a claim the table can check, so it stays ()
+    # the outside words must be written in a script the language uses
     assert _resolve_pinned_title_scripts("Klingon (Arabic)") == ()
+    assert _resolve_pinned_title_scripts("\u041a\u043b\u0438\u043d\u0433\u043e\u043d (Arabic)") == ()
+    for pin in ("Hrvatski (Croatian)", "\u010ce\u0161tina (Czech)", "Ti\u1ebfng Vi\u1ec7t (Vietnamese)",
+                "Bahasa Indonesia (Indonesian)", "Kiswahili (Swahili)"):
+        assert _resolve_pinned_title_scripts(pin) == ("latin",), pin
+    # a bracketed script beside the bracketed language still qualifies
+    assert _resolve_pinned_title_scripts("\u0420\u0443\u0441\u0441\u043a\u0438\u0439 (Russian, Latin)") == ("latin",)
+    assert _resolve_pinned_title_scripts("\u0421\u0440\u043f\u0441\u043a\u0438 (Serbian, Latin)") == ("latin",)
 
 
 def test_bracketed_own_name_beside_another_qualifier_conflicts():
