@@ -4630,6 +4630,7 @@ _TITLE_LANGUAGE_SCRIPTS = {
 _TITLE_SCRIPT_QUALIFIERS = {
     'latn': 'latin', 'latin': 'latin',
     'roman': 'latin', 'romanized': 'latin', 'romanised': 'latin',
+    'romaji': 'latin', 'pinyin': 'latin',
     'cyrl': 'cyrillic', 'cyrillic': 'cyrillic',
     'arab': 'arabic', 'arabic': 'arabic', 'shahmukhi': 'arabic', 'jawi': 'arabic',
     'guru': 'gurmukhi', 'gurmukhi': 'gurmukhi',
@@ -4656,8 +4657,8 @@ def _resolve_pinned_title_scripts(language: str) -> tuple:
     names one ("Brazilian Portuguese", "pt-BR", "Egyptian Arabic"). Any other
     token that names a script is an explicit qualifier and wins over the
     language's own entry ("pa-Arab", "Punjabi (Arabic)", "Latin Egyptian
-    Arabic"). In a tag, a BCP 47 singleton such as ``x`` starts an
-    extension or private-use section, so nothing after it is read. With no language token,
+    Arabic"). In a BCP 47 tag, a singleton such as ``x`` starts an
+    extension or private-use section, so nothing from it on is read. With no language token,
     the qualifiers alone decide ("sr-Latn", "Cyrillic"). Returns () for blank or unrecognized values, which callers treat
     as "validate against the conversation instead" (#3293 behaviour).
     """
@@ -4667,14 +4668,15 @@ def _resolve_pinned_title_scripts(language: str) -> tuple:
     )
     if not folded:
         return ()
-    is_tag = not re.search(r'\s', folded)
+    is_tag = re.fullmatch(r'[a-z0-9]+(?:[-_][a-z0-9]+)*', folded) is not None
     tokens = []
-    for token in re.split(r'[\s\-_/(),.]+', folded):
+    for token in re.split(r'[\s\-_/(),.+&\u2013\u2014]+', folded):
         if len(token) == 1:
-            # A BCP 47 singleton ("x", "u") after a subtag ends the tag. Any
-            # other lone character (the initials in "U.S. English", a dash
-            # or "+" between words) carries nothing and is skipped.
-            if is_tag and tokens and token.isascii() and token.isalnum():
+            # In a tag, a BCP 47 singleton ("x", "u") starts an extension or
+            # private-use section, so nothing from it on is read ("x-arab" is
+            # wholly private use). Outside a tag a lone character (the
+            # initials in "U.S. English" or "U.S.English") is skipped.
+            if is_tag:
                 break
             continue
         if token:

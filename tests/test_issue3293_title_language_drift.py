@@ -969,7 +969,21 @@ def test_lone_characters_outside_a_tag_do_not_end_parsing():
     assert _resolve_pinned_title_scripts("Punjabi \u2013 Shahmukhi") == ("arabic",)
     assert _resolve_pinned_title_scripts("Serbian \u2013 Latin") == ("latin",)
     assert _resolve_pinned_title_scripts("Punjabi + Shahmukhi") == ("arabic",)
-    assert _resolve_pinned_title_scripts("zh-Hant-u-nu-hanidec") == ("cjk",)
+    assert _resolve_pinned_title_scripts("U.S.English") == ("latin",)
+    assert _resolve_pinned_title_scripts("Punjabi\u2013Shahmukhi") == ("arabic",)
+    assert _resolve_pinned_title_scripts("Punjabi(P.K.,Shahmukhi)") == ("arabic",)
+    assert _resolve_pinned_title_scripts("Japanese (Romaji)") == ("latin",)
+
+
+def test_a_singleton_ends_a_tag_wherever_it_sits():
+    """Private-use and extension subtags carry no script meaning."""
+    from api.streaming import _generated_title_language_mismatch, _resolve_pinned_title_scripts
+
+    assert _resolve_pinned_title_scripts("sr-Latn-x-cyrl") == ("latin",)
+    assert _resolve_pinned_title_scripts("x-arab") == ()
+    assert _generated_title_language_mismatch(
+        "How do I fix this error?", "\u063a\u0644\u0637\u06cc", "x-arab"
+    ) is True
 
 
 def test_script_drift_with_no_expected_script_is_not_drift():
