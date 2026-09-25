@@ -4586,7 +4586,7 @@ _TITLE_LANGUAGE_SCRIPTS = {
     # cyrillic
     'russian': 'cyrillic', 'ukrainian': 'cyrillic',
     'bulgarian': 'cyrillic', 'belarusian': 'cyrillic', 'macedonian': 'cyrillic',
-    'ru': 'cyrillic', 'uk': 'cyrillic', 'bg': 'cyrillic',
+    'ru': 'cyrillic', 'uk': 'cyrillic', 'bg': 'cyrillic', 'be': 'cyrillic', 'mk': 'cyrillic',
     # cjk (one bucket for Han/Hiragana/Katakana/Hangul, same as _script_counts)
     'japanese': 'cjk', 'chinese': 'cjk', 'mandarin': 'cjk', 'cantonese': 'cjk',
     'korean': 'cjk',
@@ -4596,7 +4596,7 @@ _TITLE_LANGUAGE_SCRIPTS = {
     'hebrew': 'hebrew', 'he': 'hebrew',
     'greek': 'greek', 'el': 'greek',
     'hindi': 'devanagari', 'marathi': 'devanagari', 'nepali': 'devanagari',
-    'hi': 'devanagari',
+    'hi': 'devanagari', 'mr': 'devanagari', 'ne': 'devanagari',
     'thai': 'thai', 'th': 'thai',
     'georgian': 'georgian', 'ka': 'georgian',
     'armenian': 'armenian', 'hy': 'armenian',
@@ -4636,7 +4636,7 @@ _TITLE_SCRIPT_QUALIFIERS = {
     'roman': 'latin', 'romanized': 'latin', 'romanised': 'latin',
     'romaji': 'latin', 'pinyin': 'latin',
     'cyrl': 'cyrillic', 'cyrillic': 'cyrillic',
-    'arab': 'arabic', 'arabic': 'arabic', 'shahmukhi': 'arabic', 'jawi': 'arabic',
+    'arab': 'arabic', 'aran': 'arabic', 'arabic': 'arabic', 'shahmukhi': 'arabic', 'jawi': 'arabic',
     'guru': 'gurmukhi', 'gurmukhi': 'gurmukhi',
     'mong': 'mongolian',
     'deva': 'devanagari', 'devanagari': 'devanagari',
@@ -4701,9 +4701,16 @@ def _resolve_pinned_title_scripts(language: str) -> tuple:
             tokens.append(token)
     # In a tag the language is the first subtag or nothing: a later subtag
     # is a script, region or variant, and a region code can collide with a
-    # language key (the "my" in "ms-MY" is Malaysia, not Burmese).
-    candidates = tokens[:1] if is_tag else tokens
-    lang_at = next((i for i, t in enumerate(candidates) if t in _TITLE_LANGUAGE_SCRIPTS), None)
+    # language key (the "my" in "ms-MY" is Malaysia, not Burmese). Outside a
+    # tag the same holds for two-letter codes, so the "SI" in "Slovenian
+    # (SI)" is not Sinhala; names ("Brazilian Portuguese") match anywhere.
+    lang_at = next(
+        (
+            i for i, t in enumerate(tokens)
+            if t in _TITLE_LANGUAGE_SCRIPTS and (i == 0 or (not is_tag and len(t) > 2))
+        ),
+        None,
+    )
     if lang_at is None:
         # An unmapped language with a script qualifier ("sr-Latn", "Serbian
         # (Cyrillic)") resolves to the qualifier; a bare script name

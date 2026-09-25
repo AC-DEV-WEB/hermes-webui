@@ -1013,6 +1013,22 @@ def test_in_a_tag_only_the_first_subtag_is_the_language():
     assert _resolve_pinned_title_scripts("qu-BO") == ()
 
 
+def test_outside_a_tag_a_two_letter_code_is_the_language_only_first():
+    """The ms-MY collision through prose: "SI" beside Slovenian is a
+    country, not Sinhala. A leading code still works."""
+    from api.streaming import _generated_title_language_mismatch, _resolve_pinned_title_scripts
+
+    assert _resolve_pinned_title_scripts("Slovenian (SI)") == ()
+    assert _generated_title_language_mismatch(
+        "Kako popraviti napako?", "Kako popraviti napako", "Slovenian (SI)"
+    ) is False
+    assert _resolve_pinned_title_scripts("Aymara (BO)") == ()
+    assert _resolve_pinned_title_scripts("sl\u2013SI") == ()
+    assert _resolve_pinned_title_scripts("pt (Brazil)") == ("latin",)
+    assert _resolve_pinned_title_scripts("Punjabi (PK)") == ("gurmukhi", "arabic")
+    assert _resolve_pinned_title_scripts("pa-Aran") == ("arabic",)
+
+
 def test_iso_15924_codes_narrow_like_script_names():
     from api.streaming import _resolve_pinned_title_scripts
 
