@@ -4579,6 +4579,10 @@ _TITLE_LANGUAGE_SCRIPTS = {
     'filipino': 'latin', 'tagalog': 'latin', 'swahili': 'latin',
     'en': 'latin', 'de': 'latin', 'fr': 'latin', 'es': 'latin', 'pt': 'latin',
     'it': 'latin', 'nl': 'latin', 'pl': 'latin', 'tr': 'latin', 'vi': 'latin',
+    'id': 'latin', 'ms': 'latin', 'sv': 'latin', 'no': 'latin', 'nb': 'latin',
+    'nn': 'latin', 'da': 'latin', 'fi': 'latin', 'cs': 'latin', 'sk': 'latin',
+    'hu': 'latin', 'ro': 'latin', 'hr': 'latin', 'ca': 'latin', 'tl': 'latin',
+    'sw': 'latin',
     # cyrillic
     'russian': 'cyrillic', 'ukrainian': 'cyrillic',
     'bulgarian': 'cyrillic', 'belarusian': 'cyrillic', 'macedonian': 'cyrillic',
@@ -4638,6 +4642,11 @@ _TITLE_SCRIPT_QUALIFIERS = {
     'deva': 'devanagari', 'devanagari': 'devanagari',
     'hans': 'cjk', 'hant': 'cjk', 'hani': 'cjk', 'jpan': 'cjk', 'kore': 'cjk',
     'hebr': 'hebrew', 'grek': 'greek',
+    'thai': 'thai', 'geor': 'georgian', 'armn': 'armenian', 'ethi': 'ethiopic',
+    'beng': 'bengali', 'taml': 'tamil', 'telu': 'telugu', 'knda': 'kannada',
+    'mlym': 'malayalam', 'gujr': 'gujarati', 'sinh': 'sinhala', 'khmr': 'khmer',
+    'mymr': 'myanmar', 'tibt': 'tibetan', 'laoo': 'lao',
+    'hira': 'cjk', 'kana': 'cjk', 'hang': 'cjk',
 }
 # Every bucket's own name is a qualifier too, so "Punjabi (Hebrew)" and
 # "Sanskrit (Bengali)" narrow the same way their ISO codes do. A qualifier
@@ -4674,12 +4683,12 @@ def _resolve_pinned_title_scripts(language: str) -> tuple:
     folded = ''.join(
         ch for ch in unicodedata.normalize('NFKD', str(language or '').strip().lower())
         if not unicodedata.combining(ch)
-    )
+    ).translate({0x2010: '-', 0x2011: '-', 0x2212: '-'})
     if not folded:
         return ()
     is_tag = re.fullmatch(r'[a-z0-9]+(?:[-_][a-z0-9]+)*', folded) is not None
     tokens = []
-    for token in re.split(r'[\s\-_/(),.+&\u2010\u2011\u2013\u2014\u2212]+', folded):
+    for token in re.split(r'[\s\-_/(),.+&\u2013\u2014]+', folded):
         if len(token) == 1:
             # In a tag, a BCP 47 singleton ("x", "u") starts an extension or
             # private-use section, so nothing from it on is read ("x-arab" is
@@ -4690,7 +4699,11 @@ def _resolve_pinned_title_scripts(language: str) -> tuple:
             continue
         if token:
             tokens.append(token)
-    lang_at = next((i for i, t in enumerate(tokens) if t in _TITLE_LANGUAGE_SCRIPTS), None)
+    # In a tag the language is the first subtag or nothing: a later subtag
+    # is a script, region or variant, and a region code can collide with a
+    # language key (the "my" in "ms-MY" is Malaysia, not Burmese).
+    candidates = tokens[:1] if is_tag else tokens
+    lang_at = next((i for i, t in enumerate(candidates) if t in _TITLE_LANGUAGE_SCRIPTS), None)
     if lang_at is None:
         # An unmapped language with a script qualifier ("sr-Latn", "Serbian
         # (Cyrillic)") resolves to the qualifier; a bare script name

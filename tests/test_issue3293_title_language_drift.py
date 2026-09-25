@@ -995,9 +995,31 @@ def test_a_singleton_ends_a_tag_wherever_it_sits():
 
     assert _resolve_pinned_title_scripts("sr-Latn-x-cyrl") == ("latin",)
     assert _resolve_pinned_title_scripts("x-arab") == ()
+    assert _resolve_pinned_title_scripts("sr\u2010Latn\u2010x\u2010cyrl") == ("latin",)
     assert _generated_title_language_mismatch(
         "How do I fix this error?", "\u063a\u0644\u0637\u06cc", "x-arab"
     ) is True
+
+
+def test_in_a_tag_only_the_first_subtag_is_the_language():
+    """A region code that collides with a language key is not the language:
+    "ms-MY" is Malay in Malaysia, not Burmese."""
+    from api.streaming import _generated_title_language_mismatch, _resolve_pinned_title_scripts
+
+    assert _resolve_pinned_title_scripts("ms-MY") == ("latin",)
+    assert _generated_title_language_mismatch("x", "Panduan membaiki ralat", "ms-MY") is False
+    assert _resolve_pinned_title_scripts("ms-BN") == ("latin",)
+    assert _resolve_pinned_title_scripts("sl-SI") == ()
+    assert _resolve_pinned_title_scripts("qu-BO") == ()
+
+
+def test_iso_15924_codes_narrow_like_script_names():
+    from api.streaming import _resolve_pinned_title_scripts
+
+    assert _resolve_pinned_title_scripts("sa-Beng") == ("bengali",)
+    assert _resolve_pinned_title_scripts("sa-Taml") == ("tamil",)
+    assert _resolve_pinned_title_scripts("hi-Gujr") == ("gujarati",)
+    assert _resolve_pinned_title_scripts("ja-Kana") == ("cjk",)
 
 
 def test_script_drift_with_no_expected_script_is_not_drift():
