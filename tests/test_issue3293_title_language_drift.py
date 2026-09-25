@@ -1013,9 +1013,10 @@ def test_in_a_tag_only_the_first_subtag_is_the_language():
     assert _resolve_pinned_title_scripts("qu-BO") == ()
 
 
-def test_outside_a_tag_a_two_letter_code_is_the_language_only_first():
+def test_outside_a_tag_a_two_letter_code_never_names_the_language():
     """The ms-MY collision through prose: "SI" beside Slovenian is a
-    country, not Sinhala. A leading code still works."""
+    country, not Sinhala, and "pt (Brazil)" is not trusted either; a tag
+    ("pt-BR") or a name ("Portuguese") is."""
     from api.streaming import _generated_title_language_mismatch, _resolve_pinned_title_scripts
 
     assert _resolve_pinned_title_scripts("Slovenian (SI)") == ()
@@ -1159,11 +1160,15 @@ def test_serbian_is_known_but_has_no_default(monkeypatch):
     assert _resolve_pinned_title_scripts("Serbian") == ()
     assert _resolve_pinned_title_scripts("sr") == ()
     assert _resolve_pinned_title_scripts("sr-Cyrl") == ("cyrillic",)
-    agent, aux = _title_via_both_wrappers(
-        monkeypatch, "sr-Latn", "Kako da popravim gre\u0161ku?", "Popravka gre\u0161ke"
-    )
+    # A Cyrillic conversation with a Latin title: the conversation check alone
+    # rejects it, so acceptance proves the qualified pin retargets validation.
+    cyrillic_question = "\u041a\u0430\u043a\u043e \u0434\u0430 \u043f\u043e\u043f\u0440\u0430\u0432\u0438\u043c?"
+    agent, aux = _title_via_both_wrappers(monkeypatch, "sr-Latn", cyrillic_question, "Popravka gre\u0161ke")
     assert agent == ("Popravka gre\u0161ke", "llm_stub")
     assert aux == ("Popravka gre\u0161ke", "llm_stub")
+    agent, aux = _title_via_both_wrappers(monkeypatch, "Serbian", cyrillic_question, "Popravka gre\u0161ke")
+    assert agent == (None, "llm_language_mismatch")
+    assert aux == (None, "llm_language_mismatch_aux")
 
 
 def test_a_code_beside_its_own_language_name_is_one_language():
@@ -1206,4 +1211,11 @@ def test_posix_locale_suffix_is_ignored():
 
     assert _resolve_pinned_title_scripts("en_US.UTF-8") == ("latin",)
     assert _resolve_pinned_title_scripts("fr_FR.UTF-8") == ("latin",)
+    # a script modifier is a qualifier; any other modifier is dropped
+    assert _resolve_pinned_title_scripts("be_BY@latin") == ("latin",)
+    assert _resolve_pinned_title_scripts("sr_RS@latin") == ("latin",)
+    assert _resolve_pinned_title_scripts("uz_UZ@cyrillic") == ("cyrillic",)
+    assert _resolve_pinned_title_scripts("ks_IN@devanagari") == ("devanagari",)
+    assert _resolve_pinned_title_scripts("de_DE.UTF-8@euro") == ("latin",)
+    assert _resolve_pinned_title_scripts("ca_ES@valencia") == ("latin",)
     assert _resolve_pinned_title_scripts("zh-Hant-u-nu-hanidec") == ("cjk",)

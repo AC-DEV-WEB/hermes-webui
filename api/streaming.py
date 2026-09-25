@@ -4733,15 +4733,22 @@ def _resolve_pinned_title_scripts(language: str) -> tuple:
     if not folded:
         return ()
     # A POSIX locale ("en_US.UTF-8", "sr_RS@latin") is a tag plus an encoding
-    # or modifier suffix, which says nothing about the script.
-    locale = re.fullmatch(r'([a-z]{2,3}(?:[-_][a-z0-9]{2,8})*)[.@][a-z0-9_.@-]+', folded)
-    if locale:
+    # and an optional modifier. The encoding says nothing about the script; a
+    # modifier that names one ("@latin", "@cyrillic") is kept as a qualifier,
+    # and any other ("@euro") is dropped.
+    locale = re.fullmatch(
+        r'([a-z]{2,3}(?:[-_][a-z0-9]{2,8})*)(?:\.[a-z0-9_-]+)?(?:@([a-z0-9_-]+))?', folded
+    )
+    script_modifier = []
+    if locale and locale.group(0) != locale.group(1):
         folded = locale.group(1)
+        if locale.group(2) in _TITLE_SCRIPT_QUALIFIERS:
+            script_modifier = [locale.group(2)]
     # BCP 47 shape: a primary subtag of one to three letters (x and i are
     # singletons), then subtags of at most eight. "Brazilian-Portuguese" is
     # not a tag.
     is_tag = re.fullmatch(r'[a-z]{1,3}(?:[-_][a-z0-9]{1,8})*', folded) is not None
-    tokens = _title_pin_tokens(folded, is_tag)
+    tokens = _title_pin_tokens(folded, is_tag) + script_modifier
     # A word in parentheses or brackets qualifies the language outside them
     # and never names it: "Klingon (Arabic)" names no known language.
     outside = set(_title_pin_tokens(re.sub(r'[(\[][^)\]]*[)\]]?', ' ', folded), is_tag))
