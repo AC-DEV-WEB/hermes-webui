@@ -1133,11 +1133,28 @@ def test_conflicting_qualifiers_fail_closed(monkeypatch):
     assert aux == (None, "llm_language_mismatch_aux")
 
 
+def test_distinct_scripts_sharing_a_bucket_still_conflict(monkeypatch):
+    """Hiragana and Katakana are different ISO 15924 scripts that validate
+    through one bucket; two of them are still two qualifiers, so the pin is
+    unresolved and a Japanese title for an English conversation is drift."""
+    from api.streaming import _resolve_pinned_title_scripts
+
+    for pin in ("ja-Hira-Kana", "ja-Jpan-Hira", "zh-Hans-Hant", "Japanese (Hiragana, Katakana)"):
+        assert _resolve_pinned_title_scripts(pin) == (), pin
+    agent, aux = _title_via_both_wrappers(
+        monkeypatch, "ja-Hira-Kana", "How do I fix this error?", "修正方法の解説",
+    )
+    assert agent == (None, "llm_language_mismatch")
+    assert aux == (None, "llm_language_mismatch_aux")
+
+
 def test_equivalent_qualifiers_collapse():
     from api.streaming import _resolve_pinned_title_scripts
 
     assert _resolve_pinned_title_scripts("pa-Arab-Aran") == ("arabic",)
     assert _resolve_pinned_title_scripts("Punjabi (Arabic, Shahmukhi)") == ("arabic",)
+    assert _resolve_pinned_title_scripts("Japanese (Kanji, Hani)") == ("cjk",)
+    assert _resolve_pinned_title_scripts("Korean (Hangul, Hang)") == ("cjk",)
 
 
 def test_two_languages_fail_closed():

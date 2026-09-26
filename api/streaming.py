@@ -4683,6 +4683,14 @@ _TITLE_LANGUAGE_QUALIFIERS = {
     'mongolian': {'traditional': 'mongolian', 'classical': 'mongolian'},
 }
 
+# The cjk bucket validates several distinct ISO 15924 scripts, so two of them
+# in one pin ("ja-Hira-Kana") conflict even though they share a bucket. An
+# English name is an alias of its code; every other bucket's tokens are
+# aliases of one another ("pa-Arab-Aran" collapses).
+_TITLE_CJK_SCRIPT_ALIASES = {
+    'hiragana': 'hira', 'katakana': 'kana', 'hangul': 'hang', 'kanji': 'hani', 'hanzi': 'hani',
+}
+
 
 def _title_pin_tokens(text: str, is_tag: bool) -> list:
     """Split a folded title pin into (token, bracketed) pairs.
@@ -4814,8 +4822,13 @@ def _resolve_pinned_title_scripts(language: str) -> tuple:
         elif len(inside) == 1 and inside != {'latin'}:
             # Bracketed "Latin" after Latin-script words ("Klingon (Latin)")
             # reads the same as a script qualifier, so it never names Latin.
+            # A qualifier outside the brackets ("Русский (Russian) Cyrillic")
+            # is not part of the native name, so its letters are not counted.
             raw = str(language or '').strip().lower()
-            words = ' '.join(t for t, br in _title_pin_tokens(raw, False) if not br)
+            words = ' '.join(
+                t for t, br in _title_pin_tokens(raw, False)
+                if not br and t not in _TITLE_SCRIPT_QUALIFIERS
+            )
             counts = _script_counts(words)
             written_in = max(counts, key=counts.get) if counts else ''
             defaults = _TITLE_LANGUAGES[next(iter(inside))][0]
@@ -4843,17 +4856,21 @@ def _resolve_pinned_title_scripts(language: str) -> tuple:
     # when it spells the language itself ("th-Thai-Latn": Thai is the ISO
     # 15924 code for the Thai script, and it conflicts with Latn).
     own = _TITLE_LANGUAGE_QUALIFIERS.get(language_name, {})
-    scripts = {
-        own.get(token) or _TITLE_SCRIPT_QUALIFIERS[token]
-        for i, token in enumerate(tokens)
+    qualifiers = [
+        token for i, token in enumerate(tokens)
         if i not in naming and (token in own or token in _TITLE_SCRIPT_QUALIFIERS)
-    }
-    if scripts:
-        scripts |= {_TITLE_SCRIPT_QUALIFIERS[tokens[i]] for i in tentative}
+    ]
+    if qualifiers:
+        qualifiers += [tokens[i] for i in tentative]
+    scripts = {}
+    for token in qualifiers:
+        bucket = own.get(token) or _TITLE_SCRIPT_QUALIFIERS[token]
+        identity = _TITLE_CJK_SCRIPT_ALIASES.get(token, token) if bucket == 'cjk' else bucket
+        scripts[identity] = bucket
     if len(scripts) > 1:
         return ()
     if scripts:
-        return (scripts.pop(),)
+        return tuple(scripts.values())
     return _TITLE_LANGUAGES[language_name][0]
 
 
