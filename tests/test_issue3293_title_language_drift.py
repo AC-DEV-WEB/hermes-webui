@@ -1139,7 +1139,8 @@ def test_distinct_scripts_sharing_a_bucket_still_conflict(monkeypatch):
     unresolved and a Japanese title for an English conversation is drift."""
     from api.streaming import _resolve_pinned_title_scripts
 
-    for pin in ("ja-Hira-Kana", "ja-Jpan-Hira", "zh-Hans-Hant", "Japanese (Hiragana, Katakana)"):
+    for pin in ("ja-Hira-Kana", "ja-Jpan-Hira", "zh-Hans-Hant", "Japanese (Hiragana, Katakana)",
+                "Korean (Hanja, Hangul)"):
         assert _resolve_pinned_title_scripts(pin) == (), pin
     agent, aux = _title_via_both_wrappers(
         monkeypatch, "ja-Hira-Kana", "How do I fix this error?", "修正方法の解説",
@@ -1155,6 +1156,16 @@ def test_equivalent_qualifiers_collapse():
     assert _resolve_pinned_title_scripts("Punjabi (Arabic, Shahmukhi)") == ("arabic",)
     assert _resolve_pinned_title_scripts("Japanese (Kanji, Hani)") == ("cjk",)
     assert _resolve_pinned_title_scripts("Korean (Hangul, Hang)") == ("cjk",)
+    assert _resolve_pinned_title_scripts("Korean (Hanja, Hani)") == ("cjk",)
+
+
+def test_a_language_specific_qualifier_outside_a_native_name():
+    """"Traditional" qualifies Mongolian only, and outside the brackets it is
+    not part of the native name, so its letters do not decide the script."""
+    from api.streaming import _resolve_pinned_title_scripts
+
+    assert _resolve_pinned_title_scripts("\u041c\u043e\u043d\u0433\u043e\u043b (Mongolian) Traditional") == ("mongolian",)
+    assert _resolve_pinned_title_scripts("\u0420\u0443\u0441\u0441\u043a\u0438\u0439 (Russian) Cyrillic") == ("cyrillic",)
 
 
 def test_two_languages_fail_closed():

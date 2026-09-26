@@ -4665,6 +4665,7 @@ _TITLE_SCRIPT_QUALIFIERS = {
     'mymr': 'myanmar', 'tibt': 'tibetan', 'laoo': 'lao',
     'hira': 'cjk', 'kana': 'cjk', 'hang': 'cjk',
     'hiragana': 'cjk', 'katakana': 'cjk', 'hangul': 'cjk', 'kanji': 'cjk', 'hanzi': 'cjk',
+    'hanja': 'cjk',
 }
 # Every bucket's own name is a qualifier too, so "Punjabi (Hebrew)" and
 # "Sanskrit (Bengali)" narrow the same way their ISO codes do. A token that
@@ -4689,6 +4690,7 @@ _TITLE_LANGUAGE_QUALIFIERS = {
 # aliases of one another ("pa-Arab-Aran" collapses).
 _TITLE_CJK_SCRIPT_ALIASES = {
     'hiragana': 'hira', 'katakana': 'kana', 'hangul': 'hang', 'kanji': 'hani', 'hanzi': 'hani',
+    'hanja': 'hani',
 }
 
 
@@ -4828,6 +4830,7 @@ def _resolve_pinned_title_scripts(language: str) -> tuple:
             words = ' '.join(
                 t for t, br in _title_pin_tokens(raw, False)
                 if not br and t not in _TITLE_SCRIPT_QUALIFIERS
+                and not any(t in own for own in _TITLE_LANGUAGE_QUALIFIERS.values())
             )
             counts = _script_counts(words)
             written_in = max(counts, key=counts.get) if counts else ''
