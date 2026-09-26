@@ -1289,6 +1289,44 @@ def test_latin_is_a_language():
     assert _resolve_pinned_title_scripts("Latin American Spanish") == ("latin",)
 
 
+def test_latin_beside_another_script_fails_closed(monkeypatch):
+    """"Latin" names the language and a script alike, so beside a different
+    script it is a second qualifier; a Cyrillic title for an English
+    conversation is drift."""
+    from api.streaming import _resolve_pinned_title_scripts
+
+    for pin in ("Cyrillic Latin", "Latin (Arabic)",
+                "\u0420\u0443\u0441\u0441\u043a\u0438\u0439 (Russian) Cyrillic Latin"):
+        assert _resolve_pinned_title_scripts(pin) == (), pin
+    agent, aux = _title_via_both_wrappers(
+        monkeypatch, "Cyrillic Latin", "How do I fix this error?",
+        "\u0418\u0441\u043f\u0440\u0430\u0432\u043b\u0435\u043d\u0438\u0435 \u043e\u0448\u0438\u0431\u043a\u0438",
+    )
+    assert agent == (None, "llm_language_mismatch")
+    assert aux == (None, "llm_language_mismatch_aux")
+
+
+def test_unknown_or_unlisted_script_subtags_fail_closed():
+    """Every CJK script code counts toward the one-qualifier rule, and an ISO
+    15924 code the table does not know fails closed."""
+    from api.streaming import _resolve_pinned_title_scripts
+
+    for pin in ("ja-Hani-Hrkt", "ja-Jpan-Hrkt", "ko-Jamo-Hani", "zh-Bopo-Hans",
+                "Korean (Han, Hangul)", "ja-Zyyy", "en-Qaaa"):
+        assert _resolve_pinned_title_scripts(pin) == (), pin
+    assert _resolve_pinned_title_scripts("ja-Hrkt") == ("cjk",)
+    assert _resolve_pinned_title_scripts("zh-Hant-TW") == ("cjk",)
+    assert _resolve_pinned_title_scripts("de-CH-1996") == ("latin",)
+
+
+def test_posix_language_specific_script_modifier():
+    from api.streaming import _resolve_pinned_title_scripts
+
+    assert _resolve_pinned_title_scripts("mn_CN@traditional") == ("mongolian",)
+    assert _resolve_pinned_title_scripts("mn_CN@classical") == ("mongolian",)
+    assert _resolve_pinned_title_scripts("ca_ES@valencia") == ("latin",)
+
+
 def test_nested_brackets_stay_inside(monkeypatch):
     """An inner bracket does not end the outer one, so "Arabic" here is still
     bracketed and names no language."""

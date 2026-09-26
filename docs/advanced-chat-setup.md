@@ -156,8 +156,10 @@ what is accepted:
 - a qualifier on a language the map does not know (`Klingon-Latn`, `xx-Latn`,
   `Klingon (Arabic)`);
 - two different qualifiers (`English-Latn-Cyrl`, `pa-Arab-Guru`), including
-  two scripts validated the same way (`ja-Hira-Kana`); equivalent ones
-  collapse (`pa-Arab-Aran`, `Japanese (Kanji, Hani)`);
+  two scripts validated the same way (`ja-Hira-Kana`), or `Latin` beside
+  another script (`Cyrillic Latin`); equivalent ones collapse
+  (`pa-Arab-Aran`, `Japanese (Kanji, Hani)`);
+- a script code in a tag that the table does not know (`ja-Zyyy`);
 - two languages (`English French`);
 - a two-letter code outside a BCP 47 tag (`pt (Brazil)`, `No preference`),
   because such codes collide with region codes and ordinary words. Write the

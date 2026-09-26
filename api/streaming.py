@@ -4665,7 +4665,7 @@ _TITLE_SCRIPT_QUALIFIERS = {
     'mymr': 'myanmar', 'tibt': 'tibetan', 'laoo': 'lao',
     'hira': 'cjk', 'kana': 'cjk', 'hang': 'cjk',
     'hiragana': 'cjk', 'katakana': 'cjk', 'hangul': 'cjk', 'kanji': 'cjk', 'hanzi': 'cjk',
-    'hanja': 'cjk',
+    'hanja': 'cjk', 'han': 'cjk', 'hrkt': 'cjk', 'jamo': 'cjk', 'bopo': 'cjk',
 }
 # Every bucket's own name is a qualifier too, so "Punjabi (Hebrew)" and
 # "Sanskrit (Bengali)" narrow the same way their ISO codes do. A token that
@@ -4690,7 +4690,7 @@ _TITLE_LANGUAGE_QUALIFIERS = {
 # aliases of one another ("pa-Arab-Aran" collapses).
 _TITLE_CJK_SCRIPT_ALIASES = {
     'hiragana': 'hira', 'katakana': 'kana', 'hangul': 'hang', 'kanji': 'hani', 'hanzi': 'hani',
-    'hanja': 'hani',
+    'hanja': 'hani', 'han': 'hani',
 }
 
 
@@ -4785,14 +4785,24 @@ def _resolve_pinned_title_scripts(language: str) -> tuple:
     script_modifier = []
     if locale and locale.group(0) != locale.group(1):
         folded = locale.group(1)
-        if locale.group(2) in _TITLE_SCRIPT_QUALIFIERS:
-            script_modifier = [locale.group(2)]
+        modifier = locale.group(2)
+        if modifier in _TITLE_SCRIPT_QUALIFIERS or any(
+            modifier in own for own in _TITLE_LANGUAGE_QUALIFIERS.values()
+        ):
+            script_modifier = [modifier]
     # BCP 47 shape: a primary subtag of one to three letters (x and i are
     # singletons), then subtags of at most eight. "Brazilian-Portuguese" is
     # not a tag.
     is_tag = re.fullmatch(r'[a-z]{1,3}(?:[-_][a-z0-9]{1,8})*', folded) is not None
     pairs = _title_pin_tokens(folded, is_tag) + [(m, True) for m in script_modifier]
     tokens = [token for token, _bracketed in pairs]
+    if is_tag and any(
+        re.fullmatch(r'[a-z]{4}', token) and token not in _TITLE_SCRIPT_QUALIFIERS for token in tokens[1:]
+    ):
+        # A four-letter alphabetic subtag is an ISO 15924 script code. One
+        # this table does not know ("ja-Zyyy") could conflict with any other,
+        # so the pin fails closed.
+        return ()
 
     # The tokens that name the language, by position. In a tag only the
     # first subtag can ("xx-Arabic" is an unknown language); in prose a name
@@ -4870,7 +4880,10 @@ def _resolve_pinned_title_scripts(language: str) -> tuple:
         bucket = own.get(token) or _TITLE_SCRIPT_QUALIFIERS[token]
         identity = _TITLE_CJK_SCRIPT_ALIASES.get(token, token) if bucket == 'cjk' else bucket
         scripts[identity] = bucket
-    if len(scripts) > 1:
+    if len(scripts) > 1 or (language_name == 'latin' and set(scripts.values()) - {'latin'}):
+        # "Latin" beside another script ("Cyrillic Latin", "Latin (Arabic)")
+        # reads as a second script as easily as the language, so it fails
+        # closed; "la-Latn" agrees with itself.
         return ()
     if scripts:
         return tuple(scripts.values())
