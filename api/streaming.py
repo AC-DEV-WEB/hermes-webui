@@ -4752,8 +4752,37 @@ def _title_pin_tokens(text: str, is_tag: bool) -> list:
                     return pairs
                 continue
             if token:
-                pairs.append((token, bracketed))
+                pairs.extend((part, bracketed) for part in _title_unglued_qualifiers(token))
     return pairs
+
+
+def _title_unglued_qualifiers(token: str) -> list:
+    """Return *token*, or the qualifiers it glues together.
+
+    A mark or digit between two qualifiers ("arabic1gurmukhi") keeps them in
+    one token, which no table knows, so the pin would fall back to the bare
+    default. An unknown token whose letters split exactly into qualifier
+    words is read as those words, so the conflict is still seen.
+    """
+    if (
+        token in _TITLE_LANGUAGE_IDENTITY
+        or token in _TITLE_SCRIPT_QUALIFIERS
+        or any(token in own for own in _TITLE_LANGUAGE_QUALIFIERS.values())
+    ):
+        return [token]
+    letters = ''.join(ch for ch in token if unicodedata.category(ch)[0] == 'L')
+    words = set(_TITLE_SCRIPT_QUALIFIERS).union(*_TITLE_LANGUAGE_QUALIFIERS.values())
+    # split[i] is a word list covering letters[:i], or None.
+    split = [[]] + [None] * len(letters)
+    for end in range(1, len(letters) + 1):
+        for start in range(max(0, end - 12), end - 2):
+            if split[start] is not None and letters[start:end] in words:
+                split[end] = split[start] + [letters[start:end]]
+                break
+    parts = split[-1]
+    if parts and (len(parts) > 1 or letters != token):
+        return parts
+    return [token]
 
 
 def _resolve_pinned_title_scripts(language: str) -> tuple:

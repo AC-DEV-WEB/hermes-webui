@@ -1365,6 +1365,17 @@ def test_any_non_letter_separates_qualifiers():
     assert _resolve_pinned_title_scripts("\u0641\u0627\u0631\u0633\u06cc (Persian)") == ("arabic",)
 
 
+def test_a_mark_or_digit_cannot_glue_two_qualifiers():
+    from api.streaming import _resolve_pinned_title_scripts
+
+    for pin in ("Punjabi (Arabic\u0a41Gurmukhi)", "Punjabi (Arabic\ufe0fGurmukhi)",
+                "Punjabi (Arabic1Gurmukhi)", "Punjabi (Arabic\u0301Gurmukhi)",
+                "Chinese (Simplified\ufe0fTraditional)", "Punjabi (ArabicGurmukhi)"):
+        assert _resolve_pinned_title_scripts(pin) == (), pin
+    assert _resolve_pinned_title_scripts("Punjabi (Arabic\u0a41)") == ("arabic",)
+    assert _resolve_pinned_title_scripts("Romanian") == ("latin",)
+
+
 def test_native_name_of_a_language_with_no_default_is_checked_against_its_scripts():
     """Serbian has no bare default, but a native name beside it must still be
     written in Cyrillic or Latin to name it."""
