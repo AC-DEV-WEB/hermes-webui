@@ -1605,23 +1605,35 @@ class Session:
                 f.write(payload)
                 f.flush()
                 os.fsync(f.fileno())
-            _safe_replace(tmp, self.path)
+            if skip_index:
+                # Callers that explicitly skip the sidebar projection retain
+                # the existing same-session concurrency contract: their unique
+                # temp files may replace the sidecar independently.
+                _safe_replace(tmp, self.path)
+            else:
+                # Publish the sidecar and its sidebar projection as one ordered
+                # operation. _write_session_index() uses this same RLock, so the
+                # nested acquisition is safe. Without the outer ownership, an
+                # older save can pause after replacing the sidecar, a newer save
+                # can publish both files, and then the older save can regress
+                # only the index with its frozen projection.
+                with _INDEX_WRITE_LOCK:
+                    _safe_replace(tmp, self.path)
+                    # Build the sidebar entry from the same guarded transcript
+                    # snapshot as the JSON payload. A shallow copy avoids
+                    # rebinding/mutating the live Session while keeping message
+                    # count, user count, and last-message time aligned with
+                    # what this save actually persisted.
+                    persisted_index_session = copy.copy(self)
+                    persisted_index_session.messages = guarded_messages
+                    persisted_index_session._metadata_message_count = len(guarded_messages)
+                    _write_session_index(updates=[persisted_index_session])
         except Exception:
             try:
                 tmp.unlink(missing_ok=True)
             except Exception:
                 pass
             raise
-
-        if not skip_index:
-            # Build the sidebar entry from the same guarded transcript snapshot as
-            # the JSON payload. A shallow copy avoids rebinding/mutating the live
-            # Session while keeping message_count, user count, and last-message
-            # time aligned with what this save actually persisted.
-            persisted_index_session = copy.copy(self)
-            persisted_index_session.messages = guarded_messages
-            persisted_index_session._metadata_message_count = len(guarded_messages)
-            _write_session_index(updates=[persisted_index_session])
 
         # #4985 belt-and-suspenders self-heal: a successful save with at
         # least one real message on the sidecar is unconditional proof the

@@ -43,6 +43,10 @@ from api.turn_journal import (
 logger = logging.getLogger(__name__)
 
 
+class _ReplayGuardUnavailable(RuntimeError):
+    """The parsed recovery candidate could not be guarded safely."""
+
+
 def _msg_count(p: Path) -> int:
     """Return the number of messages in a session JSON file, or -1 on read/parse error.
 
@@ -81,9 +85,9 @@ def _effective_session_payload(p: Path) -> dict | None:
         from api.models import _deduplicate_exact_stable_messages
 
         guarded_messages, _removed = _deduplicate_exact_stable_messages(data['messages'])
-    except Exception:
+    except Exception as exc:
         logger.debug("replay guard failed while reading recovery payload %s", p, exc_info=True)
-        return None
+        raise _ReplayGuardUnavailable(str(p)) from exc
     effective = dict(data)
     effective['messages'] = guarded_messages
     effective['message_count'] = len(guarded_messages)
@@ -319,8 +323,20 @@ def _inspect_session_recovery_snapshot(session_path: Path) -> tuple[dict, dict |
             "recommend": "no_backup",
         }, None)
 
-    live_payload = _effective_session_payload(session_path)
-    bak_payload = _effective_session_payload(bak_path)
+    try:
+        live_payload = _effective_session_payload(session_path)
+        bak_payload = _effective_session_payload(bak_path)
+    except _ReplayGuardUnavailable:
+        # A valid parsed candidate whose replay guard failed is uncertainty,
+        # not proof that the live transcript is empty. Never let the fallback
+        # -1 count authorize replacement by a smaller stale backup.
+        return ({
+            "session_id": session_path.stem,
+            "live_messages": _msg_count(session_path),
+            "bak_messages": _msg_count(bak_path),
+            "recommend": "no_action",
+            "error": "replay_guard_failed",
+        }, None)
     live_count = len(live_payload['messages']) if live_payload is not None else -1
     bak_count = len(bak_payload['messages']) if bak_payload is not None else -1
     if bak_count > live_count:

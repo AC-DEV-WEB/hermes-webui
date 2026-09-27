@@ -351,6 +351,95 @@ def test_session_save_indexes_the_guarded_snapshot_without_mutating_live_message
     assert len(session.messages) == 2
 
 
+def test_overlapping_saves_cannot_publish_an_older_sidebar_index(
+    temp_session_dir,
+    monkeypatch,
+):
+    """A stale save must not overwrite the index after a newer sidecar commit."""
+    from api import models
+
+    first = {
+        "role": "assistant",
+        "content": "first",
+        "id": "assistant-event-overlap-first",
+        "timestamp": 126.25,
+    }
+    second = {
+        "role": "user",
+        "content": "newer",
+        "id": "user-event-overlap-second",
+        "timestamp": 127.25,
+    }
+    session = models.Session(
+        session_id="exact-replay-overlapping-index",
+        messages=[first],
+    )
+    real_write_index = models._write_session_index
+    older_save_at_index = threading.Event()
+    allow_older_index = threading.Event()
+    paused_once = threading.Event()
+
+    def pause_older_index(*args, **kwargs):
+        updates = kwargs.get("updates") or (args[0] if args else [])
+        update = updates[0] if updates else None
+        if (
+            update is not None
+            and len(update.messages) == 1
+            and not paused_once.is_set()
+        ):
+            paused_once.set()
+            older_save_at_index.set()
+            assert allow_older_index.wait(timeout=5), "test did not resume older save"
+        return real_write_index(*args, **kwargs)
+
+    monkeypatch.setattr(models, "_write_session_index", pause_older_index)
+    errors = []
+    newer_errors = []
+    newer_finished = threading.Event()
+
+    def run_older_save():
+        try:
+            session.save(touch_updated_at=False)
+        except Exception as exc:  # pragma: no cover - asserted below
+            errors.append(exc)
+
+    older = threading.Thread(target=run_older_save)
+    older.start()
+    assert older_save_at_index.wait(timeout=5), "older save did not reach index publish"
+
+    session.messages.append(second)
+
+    def run_newer_save():
+        try:
+            session.save(touch_updated_at=False)
+        except Exception as exc:  # pragma: no cover - asserted below
+            newer_errors.append(exc)
+        finally:
+            newer_finished.set()
+
+    newer = threading.Thread(target=run_newer_save)
+    newer.start()
+    # On the buggy path the newer save can finish while the older save is
+    # paused before index publication. On the fixed path it waits behind the
+    # shared sidecar+index publication lock; release the older save either way.
+    newer_finished.wait(timeout=1)
+    allow_older_index.set()
+    older.join(timeout=5)
+    newer.join(timeout=5)
+
+    assert not older.is_alive()
+    assert not newer.is_alive()
+    assert errors == []
+    assert newer_errors == []
+    sidecar = json.loads(session.path.read_text(encoding="utf-8"))
+    index = json.loads(models.SESSION_INDEX_FILE.read_text(encoding="utf-8"))
+    indexed = next(row for row in index if row["session_id"] == session.session_id)
+    assert sidecar["message_count"] == 2
+    assert indexed["message_count"] == sidecar["message_count"]
+    assert indexed["user_message_count"] == 1
+    assert indexed["last_message_at"] == second["timestamp"]
+
+
 def test_session_save_persists_and_backups_guarded_snapshot(temp_session_dir):
     from api.models import Session
     from api.session_recovery import inspect_session_recovery_status
@@ -624,6 +713,61 @@ def test_recovery_restores_guarded_unique_backup_after_real_save(
     assert startup_result["restored"] == 1
     assert startup_restored["messages"] == expected
     assert startup_restored["message_count"] == len(expected)
+
+
+@pytest.mark.parametrize("failing_candidate", ["live", "backup"])
+def test_recovery_guard_failure_never_restores_a_smaller_stale_backup(
+    temp_session_dir,
+    monkeypatch,
+    failing_candidate,
+):
+    from api import models
+    from api.session_recovery import recover_session
+
+    live_messages = [
+        {"role": "user", "content": "one"},
+        {"role": "assistant", "content": "two"},
+        {"role": "user", "content": "three"},
+    ]
+    backup_messages = [{"role": "user", "content": "stale"}]
+    session = models.Session(
+        session_id="exact-replay-recovery-guard-failure",
+        messages=live_messages,
+    )
+    session.save(touch_updated_at=False, skip_index=True)
+    backup_path = session.path.with_suffix(".json.bak")
+    backup_path.write_text(
+        json.dumps(
+            {
+                "session_id": session.session_id,
+                "message_count": len(backup_messages),
+                "messages": backup_messages,
+            }
+        ),
+        encoding="utf-8",
+    )
+    live_before = session.path.read_bytes()
+    real_guard = models._deduplicate_exact_stable_messages
+
+    failing_messages = live_messages if failing_candidate == "live" else backup_messages
+
+    def fail_for_selected_candidate(messages):
+        if messages == failing_messages:
+            raise MemoryError("forced replay guard failure")
+        return real_guard(messages)
+
+    monkeypatch.setattr(
+        models,
+        "_deduplicate_exact_stable_messages",
+        fail_for_selected_candidate,
+    )
+
+    result = recover_session(session.path)
+
+    assert result["recommend"] == "no_action"
+    assert result["restored"] is False
+    assert result["error"] == "replay_guard_failed"
+    assert session.path.read_bytes() == live_before
 
 
 @pytest.mark.parametrize(
