@@ -176,7 +176,8 @@ qualifies: `Tamil (Arabic)` is Tamil in Arabic script, and `mn (Mongolian)` is
 Mongolian because the code and the name agree. A language's own name for itself
 is mostly not recognised, so add the English name in brackets:
 `Русский (Russian)` and `Hrvatski (Croatian)` resolve, because the name outside is
-written in a script the bracketed language uses.
+written in a script the bracketed language uses (Cyrillic or Latin for
+Serbian, Bosnian and Uzbek).
 
 The pin affects session titles only. It does not change the language the
 assistant replies in, and it has no effect when

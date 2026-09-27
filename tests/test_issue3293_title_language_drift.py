@@ -1349,6 +1349,33 @@ def test_cjk_list_marks_and_zero_width_characters_separate_qualifiers():
     assert _resolve_pinned_title_scripts("Chinese (Traditional\u200b)") == ("cjk",)
 
 
+def test_any_non_letter_separates_qualifiers():
+    """Every character that is not a letter, mark or digit separates tokens,
+    format characters included, so no stray punctuation can glue two
+    contradictory qualifiers into one unknown token."""
+    from api.streaming import _resolve_pinned_title_scripts
+
+    for pin in ("Punjabi (Arabic\u200c, Gurmukhi)", "Punjabi (Arabic, \u200cGurmukhi)",
+                "English (Latin\u00b7Cyrillic)", "English (Latin\u3002Cyrillic)",
+                "Chinese (Simplified\u2019Traditional)", "Chinese {Simplified, Traditional}",
+                "Punjabi (Arabic\u060cGurmukhi)", "English (Latin\u200dCyrillic)",
+                "English (Latin\u00adCyrillic)", "English (Latin*Cyrillic)"):
+        assert _resolve_pinned_title_scripts(pin) == (), pin
+    assert _resolve_pinned_title_scripts("'English'") == ("latin",)
+    assert _resolve_pinned_title_scripts("\u0641\u0627\u0631\u0633\u06cc (Persian)") == ("arabic",)
+
+
+def test_native_name_of_a_language_with_no_default_is_checked_against_its_scripts():
+    """Serbian has no bare default, but a native name beside it must still be
+    written in Cyrillic or Latin to name it."""
+    from api.streaming import _resolve_pinned_title_scripts
+
+    assert _resolve_pinned_title_scripts("\u0421\u0440\u043f\u0441\u043a\u0438 (Serbian, Latin)") == ("latin",)
+    assert _resolve_pinned_title_scripts("\u0421\u0440\u043f\u0441\u043a\u0438 (Serbian)") == ()
+    assert _resolve_pinned_title_scripts("\u0e44\u0e17\u0e22\u0e44\u0e17\u0e22 (Serbian, Latin)") == ()
+    assert _resolve_pinned_title_scripts("\u05e2\u05d1\u05e8\u05d9\u05ea (Uzbek, Latin)") == ()
+
+
 def test_posix_language_specific_script_modifier():
     from api.streaming import _resolve_pinned_title_scripts
 

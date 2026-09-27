@@ -4696,6 +4696,15 @@ _TITLE_CJK_SCRIPT_ALIASES = {
     'traditional': 'hant', 'simplified': 'hans',
 }
 
+# Scripts a language with no bare default is written in. The native-name
+# reading ("Српски (Serbian)") checks the outside words against these, since
+# an empty default would accept any script.
+_TITLE_NO_DEFAULT_SCRIPTS = {
+    'serbian': ('cyrillic', 'latin'),
+    'bosnian': ('latin', 'cyrillic'),
+    'uzbek': ('latin', 'cyrillic'),
+}
+
 
 def _title_pin_tokens(text: str, is_tag: bool) -> list:
     """Split a folded title pin into (token, bracketed) pairs.
@@ -4728,9 +4737,12 @@ def _title_pin_tokens(text: str, is_tag: bool) -> list:
 
     pairs = []
     for segment, bracketed in segments:
-        # CJK list marks and zero-width characters separate too, so
-        # "(Simplified\u3001Traditional)" is two qualifiers.
-        for token in re.split(r'[\s\-_/()\[\],.;:|+&\u2013\u2014\u3001\u30fb\u200b\u2060\ufeff]+', segment):
+        # Letters, marks and digits make tokens; anything else separates,
+        # including invisible format characters (zero-width joiners, soft
+        # hyphens), so a stray "\u00b7", "\u060c" or U+200D between two qualifiers
+        # cannot glue them into one unknown token.
+        segment = ''.join(ch if unicodedata.category(ch)[0] in 'LMN' else ' ' for ch in segment)
+        for token in segment.split():
             if len(token) == 1:
                 # In a tag, a BCP 47 singleton ("x", "u") starts an extension
                 # or private-use section, so nothing from it on is read
@@ -4849,8 +4861,12 @@ def _resolve_pinned_title_scripts(language: str) -> tuple:
             )
             counts = _script_counts(words)
             written_in = max(counts, key=counts.get) if counts else ''
-            defaults = _TITLE_LANGUAGES[next(iter(inside))][0]
-            candidates = inside if written_in and (not defaults or written_in in defaults) else set()
+            bracketed_language = next(iter(inside))
+            scripts_used = (
+                _TITLE_LANGUAGES[bracketed_language][0]
+                or _TITLE_NO_DEFAULT_SCRIPTS.get(bracketed_language, ())
+            )
+            candidates = inside if written_in in scripts_used else set()
         else:
             candidates = set()
         if len(candidates) == 1:
