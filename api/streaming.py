@@ -4728,7 +4728,9 @@ def _title_pin_tokens(text: str, is_tag: bool) -> list:
 
     pairs = []
     for segment, bracketed in segments:
-        for token in re.split(r'[\s\-_/()\[\],.;:|+&\u2013\u2014]+', segment):
+        # CJK list marks and zero-width characters separate too, so
+        # "(Simplified\u3001Traditional)" is two qualifiers.
+        for token in re.split(r'[\s\-_/()\[\],.;:|+&\u2013\u2014\u3001\u30fb\u200b\u2060\ufeff]+', segment):
             if len(token) == 1:
                 # In a tag, a BCP 47 singleton ("x", "u") starts an extension
                 # or private-use section, so nothing from it on is read

@@ -1340,6 +1340,15 @@ def test_chinese_script_names_count_as_qualifiers(monkeypatch):
     assert aux == (None, "llm_language_mismatch_aux")
 
 
+def test_cjk_list_marks_and_zero_width_characters_separate_qualifiers():
+    from api.streaming import _resolve_pinned_title_scripts
+
+    for pin in ("Chinese (Simplified\u3001Traditional)", "Japanese (Hiragana\u30fbKatakana)",
+                "Punjabi (Arabic\u3001Gurmukhi)", "Punjabi (Arabic\u2060, Gurmukhi)"):
+        assert _resolve_pinned_title_scripts(pin) == (), pin
+    assert _resolve_pinned_title_scripts("Chinese (Traditional\u200b)") == ("cjk",)
+
+
 def test_posix_language_specific_script_modifier():
     from api.streaming import _resolve_pinned_title_scripts
 
