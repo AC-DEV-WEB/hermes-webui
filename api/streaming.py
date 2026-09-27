@@ -4763,6 +4763,26 @@ def _title_pin_tokens(text: str, is_tag: bool) -> list:
 _TITLE_PIN_KEPT_CATEGORIES = {'Lu', 'Ll', 'Lt', 'Lm', 'Lo', 'Mn', 'Mc', 'Me', 'Nd'}
 
 
+def _title_encoding_qualifiers(piece: str) -> list:
+    """Script qualifiers in one piece of a POSIX encoding ("en-Latn.Cyrl").
+
+    A piece that is exactly a qualifier counts, and so does one that glues two
+    or more ("cyrl1latn"). One qualifier with other letters is an encoding
+    name ("latin1", "iso8859"), which names no script.
+    """
+    def is_qualifier(word):
+        return word in _TITLE_SCRIPT_QUALIFIERS or any(
+            word in own for own in _TITLE_LANGUAGE_QUALIFIERS.values()
+        )
+
+    if is_qualifier(piece):
+        return [piece]
+    parts = _title_unglued_qualifiers(piece)
+    if len(parts) > 1 and all(is_qualifier(part) for part in parts):
+        return parts
+    return []
+
+
 def _title_pin_ascii_punctuation(ch: str) -> bool:
     """True for a form NFKD folds to ASCII punctuation (fullwidth "\uff08",
     "\uff3b", "\uff0d"), which has to reach the bracket and tag parsing."""
@@ -4897,9 +4917,10 @@ def _resolve_pinned_title_scripts(language: str) -> tuple:
             if part in _TITLE_SCRIPT_QUALIFIERS
             or any(part in own for own in _TITLE_LANGUAGE_QUALIFIERS.values())
         ] + [
-            piece
+            part
             for piece in re.split(r'[^a-z0-9]+', locale.group(2) or '')
-            if piece in _TITLE_SCRIPT_QUALIFIERS
+            if piece
+            for part in _title_encoding_qualifiers(piece)
         ]
     # BCP 47 shape: a primary subtag of one to three letters (x and i are
     # singletons), then subtags of at most eight. "Brazilian-Portuguese" is
