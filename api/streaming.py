@@ -4820,26 +4820,31 @@ def _title_unglued_qualifiers(token: str) -> list:
     # a modifier letter such as U+02BC included, is glue.
     letters = ''.join(ch for ch in token if 'a' <= ch <= 'z')
     words = set(_TITLE_SCRIPT_QUALIFIERS).union(*_TITLE_LANGUAGE_QUALIFIERS.values())
-    # split[i] is a word list ending exactly at letters[:i], or None. Glue
-    # letters of any length may sit between two words (an accented letter
-    # folds to one, "arabic\u00e0gurmukhi"; a ligature to two or three), never
-    # before the first or after the last.
-    split = [[]] + [None] * len(letters)
-    for end in range(1, len(letters) + 1):
+    # best[i] is the longest word list whose last word ends exactly at
+    # letters[:i], or None. Glue letters of any length may sit between two
+    # words (an accented letter folds to one, "arabic\u00e0gurmukhi"; a
+    # ligature to two or three) and around them, so a word holding two or
+    # more qualifiers is read as those qualifiers wherever they sit. A single
+    # qualifier with extra letters ("latin1", "thailand") stays unknown.
+    best = [None] * (len(letters) + 1)
+    for end in range(3, len(letters) + 1):
         for start in range(max(0, end - 12), end - 2):
-            if letters[start:end] not in words:
+            word = letters[start:end]
+            if word not in words:
                 continue
-            for gap in range(0, start + 1):
-                before = start - gap
-                if before < 0 or split[before] is None or (gap and not split[before]):
-                    continue
-                split[end] = split[before] + [letters[start:end]]
-                break
-            if split[end] is not None:
-                break
-    parts = split[-1]
-    if parts and (len(parts) > 1 or letters != token):
-        return parts
+            prior = max(
+                (best[b] for b in range(0, start + 1) if best[b]),
+                key=len,
+                default=[],
+            )
+            candidate = prior + [word]
+            if best[end] is None or len(candidate) > len(best[end]):
+                best[end] = candidate
+    found = max((parts for parts in best if parts), key=len, default=[])
+    if len(found) > 1:
+        return found
+    if letters in words and letters != token:
+        return [letters]
     return [token]
 
 
