@@ -4879,20 +4879,26 @@ def _resolve_pinned_title_scripts(language: str) -> tuple:
     # modifier that names one ("@latin", "@cyrillic") is kept as a qualifier,
     # and any other ("@euro") is dropped.
     locale = re.fullmatch(
-        r'([a-z]{2,3}(?:[-_][a-z0-9]{2,8})*)(?:\.[a-z0-9_-]+)?(?:@(.+))?', folded
+        r'([a-z]{2,3}(?:[-_][a-z0-9]{2,8})*)(?:\.([a-z0-9_-]+))?(?:@(.+))?', folded
     )
     script_modifier = []
     if locale and locale.group(0) != locale.group(1):
         folded = locale.group(1)
         # Every qualifier in the modifier counts, so "@arabic-gurmukhi" or a
-        # glued "@arabic1gurmukhi" conflicts like the prose form.
+        # glued "@arabic1gurmukhi" conflicts like the prose form. An encoding
+        # names no script ("utf-8", "latin1"), but a piece of it that is
+        # exactly a script qualifier ("en-Latn.Cyrl") counts too.
         script_modifier = [
             part
-            for piece in re.split(r'[^a-z0-9]+', locale.group(2) or '')
+            for piece in re.split(r'[^a-z0-9]+', locale.group(3) or '')
             if piece
             for part in _title_unglued_qualifiers(piece)
             if part in _TITLE_SCRIPT_QUALIFIERS
             or any(part in own for own in _TITLE_LANGUAGE_QUALIFIERS.values())
+        ] + [
+            piece
+            for piece in re.split(r'[^a-z0-9]+', locale.group(2) or '')
+            if piece in _TITLE_SCRIPT_QUALIFIERS
         ]
     # BCP 47 shape: a primary subtag of one to three letters (x and i are
     # singletons), then subtags of at most eight. "Brazilian-Portuguese" is

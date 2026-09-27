@@ -1425,6 +1425,10 @@ def test_fullwidth_brackets_and_modifier_separators_keep_their_structure(monkeyp
         assert _resolve_pinned_title_scripts(pin) == (), pin
     assert _resolve_pinned_title_scripts("Punjabi\uff08Arabic\uff09") == ("arabic",)
     assert _resolve_pinned_title_scripts("pa\uff0dArab") == ("arabic",)
+    for pin in ("en-Latn.Cyrl", "pa_IN.arabic@gurmukhi"):
+        assert _resolve_pinned_title_scripts(pin) == (), pin
+    assert _resolve_pinned_title_scripts("en_US.latin1") == ("latin",)
+    assert _resolve_pinned_title_scripts("ru_RU.KOI8-R") == ("cyrillic",)
     agent, aux = _title_via_both_wrappers(
         monkeypatch, "Klingon\uff08Arabic\uff09", "How do I fix this error?",
         "\u0625\u0635\u0644\u0627\u062d \u0627\u0644\u062e\u0637\u0623",
