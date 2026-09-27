@@ -4756,6 +4756,25 @@ def _title_pin_tokens(text: str, is_tag: bool) -> list:
     return pairs
 
 
+# Letters, marks and decimal digits survive into pin tokens. Letter-like
+# numbers (Nl, No) and superscript or subscript letters are left out because
+# NFKD turns them into letters ("\u2170" into "i", "\u00aa" into "a") that
+# would glue the qualifiers either side.
+_TITLE_PIN_KEPT_CATEGORIES = {'Lu', 'Ll', 'Lt', 'Lm', 'Lo', 'Mn', 'Mc', 'Me', 'Nd'}
+
+
+def _title_pin_glue_form(ch: str) -> bool:
+    """True for a compatibility form NFKD would turn into glue: a superscript
+    or subscript letter ("\u00aa" into "a"), or one whose expansion carries
+    punctuation ("\u013f" into "L\u00b7")."""
+    tag = unicodedata.decomposition(ch)
+    if not tag.startswith('<'):
+        return False
+    return tag.startswith(('<super>', '<sub>')) or any(
+        unicodedata.category(c)[0] not in 'LM' for c in unicodedata.normalize('NFKD', ch)
+    )
+
+
 def _title_unglued_qualifiers(token: str) -> list:
     """Return *token*, or the qualifiers it glues together.
 
@@ -4770,14 +4789,25 @@ def _title_unglued_qualifiers(token: str) -> list:
         or any(token in own for own in _TITLE_LANGUAGE_QUALIFIERS.values())
     ):
         return [token]
-    letters = ''.join(ch for ch in token if unicodedata.category(ch)[0] == 'L')
+    # Every alias and qualifier is plain a-z, so anything else in the token,
+    # a modifier letter such as U+02BC included, is glue.
+    letters = ''.join(ch for ch in token if 'a' <= ch <= 'z')
     words = set(_TITLE_SCRIPT_QUALIFIERS).union(*_TITLE_LANGUAGE_QUALIFIERS.values())
-    # split[i] is a word list covering letters[:i], or None.
+    # split[i] is a word list ending exactly at letters[:i], or None. Up to
+    # three glue letters may sit between two words (an accented letter folds
+    # to one, "arabic\u00e0gurmukhi"), never before the first or after the last.
     split = [[]] + [None] * len(letters)
     for end in range(1, len(letters) + 1):
         for start in range(max(0, end - 12), end - 2):
-            if split[start] is not None and letters[start:end] in words:
-                split[end] = split[start] + [letters[start:end]]
+            if letters[start:end] not in words:
+                continue
+            for gap in range(0, 4):
+                before = start - gap
+                if before < 0 or split[before] is None or (gap and not split[before]):
+                    continue
+                split[end] = split[before] + [letters[start:end]]
+                break
+            if split[end] is not None:
                 break
     parts = split[-1]
     if parts and (len(parts) > 1 or letters != token):
@@ -4821,7 +4851,14 @@ def _resolve_pinned_title_scripts(language: str) -> tuple:
     # kept as "-" so a tag still parses.
     raw = str(language or '').strip().lower().translate({0x2010: '-', 0x2011: '-', 0x2212: '-'})
     raw = ''.join(
-        ch if ch.isascii() or unicodedata.category(ch)[0] in 'LMN' else ' ' for ch in raw
+        ch
+        if ch.isascii()
+        or (
+            unicodedata.category(ch) in _TITLE_PIN_KEPT_CATEGORIES
+            and not _title_pin_glue_form(ch)
+        )
+        else ' '
+        for ch in raw
     )
     folded = ''.join(
         ch for ch in unicodedata.normalize('NFKD', raw)

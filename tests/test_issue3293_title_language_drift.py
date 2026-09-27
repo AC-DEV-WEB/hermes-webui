@@ -1395,6 +1395,26 @@ def test_symbols_that_nfkd_expands_and_posix_modifiers_still_separate(monkeypatc
     assert aux == (None, "llm_language_mismatch_aux")
 
 
+def test_no_character_glues_two_qualifiers():
+    """Every character outside ASCII, used as glue between two contradictory
+    qualifiers, leaves the pin unresolved: modifier letters (U+02BC),
+    superscript letters, letter-like numerals and accented letters included."""
+    import unicodedata
+    from api.streaming import _resolve_pinned_title_scripts
+
+    for glue in ("\u02bc", "\u02bb", "\u1d43", "\u00aa", "\u3005", "\u2170", "\u00e0", "\u013f", "\u2122"):
+        for pin in ("Punjabi (Arabic{}Gurmukhi)", "Chinese (Simplified{}Traditional)", "English-Latn{}Cyrl"):
+            assert _resolve_pinned_title_scripts(pin.format(glue)) == (), (pin, glue)
+    survivors = [
+        hex(cp) for cp in range(0x80, 0x3000)
+        if unicodedata.category(chr(cp)) not in ("Cs", "Co", "Cn")
+        and _resolve_pinned_title_scripts("Punjabi (Arabic{}Gurmukhi)".format(chr(cp))) != ()
+    ]
+    assert survivors == []
+    assert _resolve_pinned_title_scripts("Fran\u00e7ais") == ("latin",)
+    assert _resolve_pinned_title_scripts("Thailand") == ()
+
+
 def test_native_name_of_a_language_with_no_default_is_checked_against_its_scripts():
     """Serbian has no bare default, but a native name beside it must still be
     written in Cyrillic or Latin to name it."""
