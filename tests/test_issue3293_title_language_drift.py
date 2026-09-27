@@ -1376,6 +1376,25 @@ def test_a_mark_or_digit_cannot_glue_two_qualifiers():
     assert _resolve_pinned_title_scripts("Romanian") == ("latin",)
 
 
+def test_symbols_that_nfkd_expands_and_posix_modifiers_still_separate(monkeypatch):
+    """A symbol NFKD would expand into letters ("\u2122" into "tm") separates
+    like any other, and a POSIX modifier carries every qualifier in it."""
+    from api.streaming import _resolve_pinned_title_scripts
+
+    for pin in ("Punjabi (Arabic\u2122Gurmukhi)", "Punjabi (Arabic\u00aeGurmukhi)",
+                "pa_IN@arabic-gurmukhi", "pa_IN@Arabic1Gurmukhi"):
+        assert _resolve_pinned_title_scripts(pin) == (), pin
+    assert _resolve_pinned_title_scripts("pa_IN@arabic") == ("arabic",)
+    assert _resolve_pinned_title_scripts("pa\u2010Arab") == ("arabic",)
+    assert _resolve_pinned_title_scripts("\uff30\uff55\uff4e\uff4a\uff41\uff42\uff49 (Arabic)") == ("arabic",)
+    agent, aux = _title_via_both_wrappers(
+        monkeypatch, "pa_IN@arabic-gurmukhi", "How do I fix this error?",
+        "\u0625\u0635\u0644\u0627\u062d \u0627\u0644\u062e\u0637\u0623",
+    )
+    assert agent == (None, "llm_language_mismatch")
+    assert aux == (None, "llm_language_mismatch_aux")
+
+
 def test_native_name_of_a_language_with_no_default_is_checked_against_its_scripts():
     """Serbian has no bare default, but a native name beside it must still be
     written in Cyrillic or Latin to name it."""

@@ -4815,10 +4815,18 @@ def _resolve_pinned_title_scripts(language: str) -> tuple:
     Diacritics are folded first. In a tag, a singleton such as ``x`` starts
     an extension or private-use section, so nothing from it on is read.
     """
+    # Non-ASCII symbols and punctuation become spaces before NFKD, which
+    # would otherwise expand some into letters ("\u2122" into "tm") and glue
+    # the qualifiers either side into one unknown token. Unicode hyphens are
+    # kept as "-" so a tag still parses.
+    raw = str(language or '').strip().lower().translate({0x2010: '-', 0x2011: '-', 0x2212: '-'})
+    raw = ''.join(
+        ch if ch.isascii() or unicodedata.category(ch)[0] in 'LMN' else ' ' for ch in raw
+    )
     folded = ''.join(
-        ch for ch in unicodedata.normalize('NFKD', str(language or '').strip().lower())
+        ch for ch in unicodedata.normalize('NFKD', raw)
         if not unicodedata.combining(ch)
-    ).translate({0x2010: '-', 0x2011: '-', 0x2212: '-'})
+    ).strip()
     if not folded:
         return ()
     # A POSIX locale ("en_US.UTF-8", "sr_RS@latin") is a tag plus an encoding
@@ -4831,11 +4839,16 @@ def _resolve_pinned_title_scripts(language: str) -> tuple:
     script_modifier = []
     if locale and locale.group(0) != locale.group(1):
         folded = locale.group(1)
-        modifier = locale.group(2)
-        if modifier in _TITLE_SCRIPT_QUALIFIERS or any(
-            modifier in own for own in _TITLE_LANGUAGE_QUALIFIERS.values()
-        ):
-            script_modifier = [modifier]
+        # Every qualifier in the modifier counts, so "@arabic-gurmukhi" or a
+        # glued "@arabic1gurmukhi" conflicts like the prose form.
+        script_modifier = [
+            part
+            for piece in re.split(r'[^a-z0-9]+', locale.group(2) or '')
+            if piece
+            for part in _title_unglued_qualifiers(piece)
+            if part in _TITLE_SCRIPT_QUALIFIERS
+            or any(part in own for own in _TITLE_LANGUAGE_QUALIFIERS.values())
+        ]
     # BCP 47 shape: a primary subtag of one to three letters (x and i are
     # singletons), then subtags of at most eight. "Brazilian-Portuguese" is
     # not a tag.
