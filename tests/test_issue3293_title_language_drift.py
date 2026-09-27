@@ -1415,6 +1415,24 @@ def test_no_character_glues_two_qualifiers():
     assert _resolve_pinned_title_scripts("Thailand") == ()
 
 
+def test_fullwidth_brackets_and_modifier_separators_keep_their_structure(monkeypatch):
+    """Fullwidth brackets and hyphens still bracket and still split a tag, and
+    a POSIX modifier with any separator carries every qualifier."""
+    from api.streaming import _resolve_pinned_title_scripts
+
+    for pin in ("Klingon\uff08Arabic\uff09", "Klingon\uff3bArabic\uff3d", "xx\uff0dArabic",
+                "pa_IN@arabic,gurmukhi", "pa_IN@arabic\u200b-gurmukhi"):
+        assert _resolve_pinned_title_scripts(pin) == (), pin
+    assert _resolve_pinned_title_scripts("Punjabi\uff08Arabic\uff09") == ("arabic",)
+    assert _resolve_pinned_title_scripts("pa\uff0dArab") == ("arabic",)
+    agent, aux = _title_via_both_wrappers(
+        monkeypatch, "Klingon\uff08Arabic\uff09", "How do I fix this error?",
+        "\u0625\u0635\u0644\u0627\u062d \u0627\u0644\u062e\u0637\u0623",
+    )
+    assert agent == (None, "llm_language_mismatch")
+    assert aux == (None, "llm_language_mismatch_aux")
+
+
 def test_native_name_of_a_language_with_no_default_is_checked_against_its_scripts():
     """Serbian has no bare default, but a native name beside it must still be
     written in Cyrillic or Latin to name it."""

@@ -4763,6 +4763,13 @@ def _title_pin_tokens(text: str, is_tag: bool) -> list:
 _TITLE_PIN_KEPT_CATEGORIES = {'Lu', 'Ll', 'Lt', 'Lm', 'Lo', 'Mn', 'Mc', 'Me', 'Nd'}
 
 
+def _title_pin_ascii_punctuation(ch: str) -> bool:
+    """True for a form NFKD folds to ASCII punctuation (fullwidth "\uff08",
+    "\uff3b", "\uff0d"), which has to reach the bracket and tag parsing."""
+    folded = unicodedata.normalize('NFKD', ch)
+    return folded.isascii() and not any(c.isalnum() or c.isspace() for c in folded)
+
+
 def _title_pin_glue_form(ch: str) -> bool:
     """True for a compatibility form NFKD would turn into glue: a superscript
     or subscript letter ("\u00aa" into "a"), or one whose expansion carries
@@ -4853,6 +4860,7 @@ def _resolve_pinned_title_scripts(language: str) -> tuple:
     raw = ''.join(
         ch
         if ch.isascii()
+        or _title_pin_ascii_punctuation(ch)
         or (
             unicodedata.category(ch) in _TITLE_PIN_KEPT_CATEGORIES
             and not _title_pin_glue_form(ch)
@@ -4871,7 +4879,7 @@ def _resolve_pinned_title_scripts(language: str) -> tuple:
     # modifier that names one ("@latin", "@cyrillic") is kept as a qualifier,
     # and any other ("@euro") is dropped.
     locale = re.fullmatch(
-        r'([a-z]{2,3}(?:[-_][a-z0-9]{2,8})*)(?:\.[a-z0-9_-]+)?(?:@([a-z0-9_-]+))?', folded
+        r'([a-z]{2,3}(?:[-_][a-z0-9]{2,8})*)(?:\.[a-z0-9_-]+)?(?:@(.+))?', folded
     )
     script_modifier = []
     if locale and locale.group(0) != locale.group(1):
