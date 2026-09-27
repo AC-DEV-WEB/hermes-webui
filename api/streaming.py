@@ -4665,7 +4665,7 @@ _TITLE_SCRIPT_QUALIFIERS = {
     'mymr': 'myanmar', 'tibt': 'tibetan', 'laoo': 'lao',
     'hira': 'cjk', 'kana': 'cjk', 'hang': 'cjk',
     'hiragana': 'cjk', 'katakana': 'cjk', 'hangul': 'cjk', 'kanji': 'cjk', 'hanzi': 'cjk',
-    'hanja': 'cjk', 'han': 'cjk', 'hrkt': 'cjk', 'jamo': 'cjk', 'bopo': 'cjk',
+    'hanja': 'cjk', 'han': 'cjk', 'hrkt': 'cjk', 'jamo': 'cjk', 'bopo': 'cjk', 'bopomofo': 'cjk',
 }
 # Every bucket's own name is a qualifier too, so "Punjabi (Hebrew)" and
 # "Sanskrit (Bengali)" narrow the same way their ISO codes do. A token that
@@ -4682,6 +4682,7 @@ del _bucket
 # sit in the general table.
 _TITLE_LANGUAGE_QUALIFIERS = {
     'mongolian': {'traditional': 'mongolian', 'classical': 'mongolian'},
+    'chinese': {'traditional': 'cjk', 'simplified': 'cjk'},
 }
 
 # The cjk bucket validates several distinct ISO 15924 scripts, so two of them
@@ -4690,7 +4691,9 @@ _TITLE_LANGUAGE_QUALIFIERS = {
 # aliases of one another ("pa-Arab-Aran" collapses).
 _TITLE_CJK_SCRIPT_ALIASES = {
     'hiragana': 'hira', 'katakana': 'kana', 'hangul': 'hang', 'kanji': 'hani', 'hanzi': 'hani',
-    'hanja': 'hani', 'han': 'hani',
+    'hanja': 'hani', 'han': 'hani', 'bopomofo': 'bopo',
+    # Beside Chinese only (see _TITLE_LANGUAGE_QUALIFIERS).
+    'traditional': 'hant', 'simplified': 'hans',
 }
 
 

@@ -1319,6 +1319,27 @@ def test_unknown_or_unlisted_script_subtags_fail_closed():
     assert _resolve_pinned_title_scripts("de-CH-1996") == ("latin",)
 
 
+def test_chinese_script_names_count_as_qualifiers(monkeypatch):
+    """Bopomofo, Simplified and Traditional are Chinese script qualifiers, so
+    two different ones fail closed and a Japanese title for an English
+    conversation is drift."""
+    from api.streaming import _resolve_pinned_title_scripts
+
+    for pin in ("Chinese (Bopomofo, Han)", "Chinese (Simplified, Traditional)",
+                "Chinese (Traditional, Latin)", "Chinese (Simplified, Hant)"):
+        assert _resolve_pinned_title_scripts(pin) == (), pin
+    for pin in ("Chinese (Traditional)", "Traditional Chinese", "Simplified Chinese",
+                "Chinese (Traditional, Hant)", "Chinese (Bopomofo)"):
+        assert _resolve_pinned_title_scripts(pin) == ("cjk",), pin
+    assert _resolve_pinned_title_scripts("Mongolian (Traditional)") == ("mongolian",)
+    agent, aux = _title_via_both_wrappers(
+        monkeypatch, "Chinese (Simplified, Traditional)", "How do I fix this error?",
+        "\u4fee\u6b63\u65b9\u6cd5\u306e\u89e3\u8aac",
+    )
+    assert agent == (None, "llm_language_mismatch")
+    assert aux == (None, "llm_language_mismatch_aux")
+
+
 def test_posix_language_specific_script_modifier():
     from api.streaming import _resolve_pinned_title_scripts
 
