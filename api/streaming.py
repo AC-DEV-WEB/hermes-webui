@@ -4800,15 +4800,16 @@ def _title_unglued_qualifiers(token: str) -> list:
     # a modifier letter such as U+02BC included, is glue.
     letters = ''.join(ch for ch in token if 'a' <= ch <= 'z')
     words = set(_TITLE_SCRIPT_QUALIFIERS).union(*_TITLE_LANGUAGE_QUALIFIERS.values())
-    # split[i] is a word list ending exactly at letters[:i], or None. Up to
-    # three glue letters may sit between two words (an accented letter folds
-    # to one, "arabic\u00e0gurmukhi"), never before the first or after the last.
+    # split[i] is a word list ending exactly at letters[:i], or None. Glue
+    # letters of any length may sit between two words (an accented letter
+    # folds to one, "arabic\u00e0gurmukhi"; a ligature to two or three), never
+    # before the first or after the last.
     split = [[]] + [None] * len(letters)
     for end in range(1, len(letters) + 1):
         for start in range(max(0, end - 12), end - 2):
             if letters[start:end] not in words:
                 continue
-            for gap in range(0, 4):
+            for gap in range(0, start + 1):
                 before = start - gap
                 if before < 0 or split[before] is None or (gap and not split[before]):
                     continue

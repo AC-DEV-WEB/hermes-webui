@@ -1413,6 +1413,8 @@ def test_no_character_glues_two_qualifiers():
     assert survivors == []
     assert _resolve_pinned_title_scripts("Fran\u00e7ais") == ("latin",)
     assert _resolve_pinned_title_scripts("Thailand") == ()
+    for pin in ("Punjabi (ArabicxxxxGurmukhi)", "Punjabi (ArabicﬁﬁGurmukhi)"):
+        assert _resolve_pinned_title_scripts(pin) == (), pin
 
 
 def test_fullwidth_brackets_and_modifier_separators_keep_their_structure(monkeypatch):

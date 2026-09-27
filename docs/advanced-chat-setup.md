@@ -168,8 +168,10 @@ what is accepted:
 
 Language lookup is diacritic-insensitive. In a BCP 47 tag the language is the
 first subtag. A POSIX locale's encoding and modifier are ignored
-(`en_US.UTF-8`), except a modifier that names a script, which qualifies
-(`be_BY@latin`, `sr_RS@latin`). Otherwise a
+(`en_US.UTF-8`), except that every script named in the modifier qualifies
+(`be_BY@latin`, `sr_RS@latin`; `pa_IN@arabic-gurmukhi` conflicts), and so does
+a piece of the encoding that is exactly a script code (`en-Latn.Cyrl`
+conflicts). Otherwise a
 language name counts anywhere outside brackets, so `Francais`, `Français`,
 `Traditional Chinese` and `Brazilian Portuguese` resolve. A word in brackets only
 qualifies: `Tamil (Arabic)` is Tamil in Arabic script, and `mn (Mongolian)` is
