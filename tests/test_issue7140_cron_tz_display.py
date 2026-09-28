@@ -37,16 +37,25 @@ This file covers:
 
 import json
 import pathlib
+import shutil
 import subprocess
 import textwrap
+
+import pytest
 
 REPO_ROOT = pathlib.Path(__file__).parent.parent.resolve()
 SESSIONS_JS_PATH = REPO_ROOT / "static" / "sessions.js"
 PANELS_JS_PATH = REPO_ROOT / "static" / "panels.js"
-ROUTES_PY_PATH = REPO_ROOT / "api" / "routes.py"
 
 SESSIONS_JS = SESSIONS_JS_PATH.read_text(encoding="utf-8")
 PANELS_JS = PANELS_JS_PATH.read_text(encoding="utf-8")
+
+# Node-backed tests follow the repository pattern in
+# tests/test_renderer_js_behaviour.py: they skip (individually — not the whole
+# module) on a supported environment where node is absent, so the normal
+# Python suite stays green there too.
+NODE = shutil.which("node")
+needs_node = pytest.mark.skipif(NODE is None, reason="node not on PATH")
 
 
 def _extract_function(source: str, name: str) -> str:
@@ -102,22 +111,64 @@ def test_sessions_payload_still_ships_server_tz():
     assert len(data["server_tz"]) == 5  # "+HHMM" / "-HHMM"
 
 
-def test_routes_py_rarely_rewrites_cron_timestamps():
-    """The cron payload must NOT be re-zoned server-side.
+def _extract_fmt_date_expr(source: str) -> str:
+    """Pull the live ``_isoTz`` / ``_fmtDate`` statements out of
+    ``_renderCronDetail`` so the test drives the REAL expression the panel
+    renders with (not a copy that can drift)."""
+    start = source.index("function _renderCronDetail")
+    detail = source[start:]
+    iso_start = detail.index("const _isoTz = ")
+    fmt_marker = detail.index("const _fmtDate = ", iso_start)
+    end = detail.index(";\n", fmt_marker) + 2
+    return detail[iso_start:end]
 
-    The whole fix rests on the ISO string's own offset reaching the browser
-    untouched.  If a future change normalised next_run_at/last_run_at to a
-    process-wide zone before serialising, the client could no longer see
-    the per-profile/DST-correct offset — so the parser stays defensive
-    (returns null → caller falls back) but the API must not strip it.
+
+@needs_node
+def test_render_cron_detail_formats_from_the_timestamps_own_offset():
+    """Drive the real ``_renderCronDetail`` date expression through node and
+    assert the actual rendered values (maintainer review: cover the render
+    result, not source-string presence).
+
+    Browser zone is pinned to America/New_York so every offset-carrying
+    value must read its wall clock from the STRING's own offset, while a
+    naive value (no offset) must render in the browser zone exactly like
+    the pre-fix panel did (``new Date(value).toLocaleString()``).
     """
-    assert "_server_tz_offset" in ROUTES_PY_PATH.read_text(encoding="utf-8")
+    fmt_expr = _extract_fmt_date_expr(PANELS_JS)
+    script_body = textwrap.dedent(
+        f"""
+        {fmt_expr}
+        const out = {{
+          sao:    _fmtDate('2026-09-24T09:00:00-03:00'),
+          summer: _fmtDate('2026-07-15T09:00:00-03:00'),
+          winter: _fmtDate('2026-01-15T09:00:00-02:00'),
+          ist:    _fmtDate('2026-09-24T07:30:00+05:30'),
+          naive:  _fmtDate('2026-09-24T09:00:00'),
+          naiveExpected: new Date('2026-09-24T09:00:00').toLocaleString(),
+        }};
+        process.stdout.write(JSON.stringify(out));
+        """
+    )
+    result = _run_js(tz="America/New_York", script_body=script_body)
+    # Explicit -03:00: 09:00 Sao Paulo wall clock, NOT the browser zone.
+    assert "9:00" in result["sao"] or "09:00" in result["sao"]
+    # DST-separated pair: each half of the year keeps its own offset.
+    assert "9:00" in result["summer"] or "09:00" in result["summer"]
+    assert "9:00" in result["winter"] or "09:00" in result["winter"]
+    # Fractional offset (+05:30 IST): the minute survives the shift.
+    assert "7:30" in result["ist"] or "07:30" in result["ist"]
+    # Naive: identical to the pre-PR browser-local rendering.
+    assert result["naive"] == result["naiveExpected"], (
+        f"naive value must render as the browser-zone toLocaleString() "
+        f"(got {result['naive']!r}, expected {result['naiveExpected']!r})"
+    )
 
 
 # ---------------------------------------------------------------------------
 # JS: _isoOffsetMinutes — the offset the string itself carries
 # ---------------------------------------------------------------------------
 
+@needs_node
 def test_iso_offset_parses_sao_paulo():
     """The reporter's zone: UTC container, config.yaml America/Sao_Paulo."""
     result = _run_js("""
@@ -128,6 +179,7 @@ def test_iso_offset_parses_sao_paulo():
     assert result["sp"] == -180
 
 
+@needs_node
 def test_iso_offset_parses_fractional_offsets():
     result = _run_js("""
         process.stdout.write(JSON.stringify({
@@ -145,6 +197,7 @@ def test_iso_offset_parses_fractional_offsets():
     assert result["zulu"] == 0
 
 
+@needs_node
 def test_iso_offset_rejects_naive_and_junk():
     """A string with no offset must be reported as unusable (null) so the
     caller falls back instead of silently rendering the wrong zone."""
@@ -168,6 +221,7 @@ def test_iso_offset_rejects_naive_and_junk():
 # JS: _formatInIsoTz — the reporter's scenario
 # ---------------------------------------------------------------------------
 
+@needs_node
 def test_reporter_scenario_sao_paulo_renders_local_wall_clock():
     """UTC container + config.yaml America/Sao_Paulo + no HERMES_TIMEZONE.
 
@@ -185,6 +239,7 @@ def test_reporter_scenario_sao_paulo_renders_local_wall_clock():
     )
 
 
+@needs_node
 def test_dst_pair_uses_each_timestamps_own_offset():
     """A current offset is wrong across DST: the two halves of the year
     carry different offsets and each must be honoured."""
@@ -199,6 +254,7 @@ def test_dst_pair_uses_each_timestamps_own_offset():
     assert "9:00" in result["winter"] or "09:00" in result["winter"]
 
 
+@needs_node
 def test_per_profile_zones_render_independently():
     """One process (and one server_tz) can host jobs on different zones."""
     result = _run_js(tz="UTC", script_body="""
@@ -213,6 +269,7 @@ def test_per_profile_zones_render_independently():
     assert "9:00" in result["london"] or "09:00" in result["london"]
 
 
+@needs_node
 def test_format_in_iso_tz_handles_fractional_offset():
     """India +0530 — the minute must survive the shift.
 
@@ -229,6 +286,7 @@ def test_format_in_iso_tz_handles_fractional_offset():
     )
 
 
+@needs_node
 def test_format_in_iso_tz_zulu_and_fallbacks():
     result = _run_js(tz="UTC", script_body="""
         process.stdout.write(JSON.stringify({
@@ -255,8 +313,10 @@ def test_panels_js_prefers_iso_offset_over_server_tz():
     assert "_formatInIsoTz" in detail, (
         "_renderCronDetail must format via the timestamp's own ISO offset"
     )
-    # ...and keep _formatInServerTz as the documented fallback path.
-    assert "_formatInServerTz" in detail
+    # ...and keep the pre-fix browser-zone render for naive values (a value
+    # with no offset has no trustworthy server offset to apply), so the
+    # panel never double-shifts a naive value through the server tz.
+    assert "new Date(value).toLocaleString()" in detail
 
 
 def test_panels_js_falls_back_when_helper_out_of_scope():

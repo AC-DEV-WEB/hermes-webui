@@ -1247,13 +1247,12 @@ function _renderCronDetail(job){
   //
   // `_formatInIsoTz()` parses the ±HH:MM out of the string, shifts the
   // instant by it and formats with timeZone:'UTC' — so the wall clock comes
-  // from the job's own data.  Fallbacks keep the old behaviour when the
-  // ISO string carries no offset (naive) or the helper is out of scope:
-  // first the process-level server tz, then the original browser-zone
-  // `toLocaleString()`, so the panel always renders.
+  // from the job's own data.  Fallback for a value with no offset (naive):
+  // render it in the browser zone exactly like the pre-fix panel did
+  // (`new Date(value).toLocaleString()`) — a naive string has no
+  // trustworthy server offset to apply, so the panel always renders.
   const _isoTz = (typeof _formatInIsoTz === 'function') ? _formatInIsoTz : () => null;
-  const _fmtDate = (value) => _isoTz(value)
-    || ((typeof _formatInServerTz === 'function') ? _formatInServerTz(new Date(value)) : new Date(value).toLocaleString());
+  const _fmtDate = (value) => _isoTz(value) || new Date(value).toLocaleString();
   const nextRun = job.next_run_at ? _fmtDate(job.next_run_at) : t('not_available');
   const lastRun = job.last_run_at ? _fmtDate(job.last_run_at) : t('never');
   const schedule = job.schedule_display || (job.schedule && job.schedule.expression) || '';
