@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import os
 import pathlib
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -168,13 +169,20 @@ def test_activity_snapshot_body_has_no_smuggled_newline_in_comments():
 def test_activity_snapshot_body_parses_as_javascript():
     """The evaluated snapshot body must be syntactically valid JavaScript
     (guards against any future escape/comment breakage in the literal)."""
+    node = shutil.which("node")
+    if node is None:
+        pytest.skip("node not on PATH; skipping embedded-JS syntax check")
     body = _evaluated_activity_snapshot_body()
     wrapped = "(function(){" + body + "})"
-    with tempfile.NamedTemporaryFile("w", suffix=".js", delete=False) as f:
+    with tempfile.NamedTemporaryFile(
+        "w", suffix=".js", delete=False, encoding="utf-8"
+    ) as f:
         f.write("module.exports = " + wrapped + ";\n")
         tmp = f.name
     try:
-        r = subprocess.run(["node", "--check", tmp], capture_output=True, text=True, timeout=30)
+        r = subprocess.run(
+            [node, "--check", tmp], capture_output=True, text=True, timeout=30
+        )
         assert r.returncode == 0, f"embedded JS failed to parse: {r.stderr}"
     finally:
         os.unlink(tmp)
