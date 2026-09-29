@@ -4793,6 +4793,12 @@ def _title_pin_glue_form(ch: str) -> bool:
     )
 
 
+def _title_glue_rank(parts: list) -> tuple:
+    """Prefer more qualifier words, then more letters covered, so "hanthans"
+    reads as "hant" and "hans" (a conflict) over "han" twice."""
+    return (len(parts), sum(len(part) for part in parts))
+
+
 def _title_unglued_qualifiers(token: str) -> list:
     """Return *token*, or the qualifiers it glues together.
 
@@ -4825,13 +4831,13 @@ def _title_unglued_qualifiers(token: str) -> list:
                 continue
             prior = max(
                 (best[b] for b in range(0, start + 1) if best[b]),
-                key=len,
+                key=_title_glue_rank,
                 default=[],
             )
             candidate = prior + [word]
-            if best[end] is None or len(candidate) > len(best[end]):
+            if best[end] is None or _title_glue_rank(candidate) > _title_glue_rank(best[end]):
                 best[end] = candidate
-    found = max((parts for parts in best if parts), key=len, default=[])
+    found = max((parts for parts in best if parts), key=_title_glue_rank, default=[])
     if len(found) > 1:
         return found
     if letters in words and letters != token:

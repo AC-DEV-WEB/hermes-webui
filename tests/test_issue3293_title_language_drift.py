@@ -1527,3 +1527,31 @@ def test_a_pin_past_the_length_cap_is_not_parsed(monkeypatch):
     )
     assert agent == (None, "llm_language_mismatch")
     assert aux == (None, "llm_language_mismatch_aux")
+
+
+def test_glued_qualifiers_resolve_like_separated_ones(monkeypatch):
+    """Two qualifier words glued together resolve exactly as the same two
+    separated by a comma, so a shorter split ("han" twice inside "hanthans")
+    cannot hide a conflict."""
+    from api.streaming import (
+        _TITLE_LANGUAGE_QUALIFIERS,
+        _TITLE_SCRIPT_QUALIFIERS,
+        _resolve_pinned_title_scripts,
+    )
+
+    assert _resolve_pinned_title_scripts("Chinese (HantHans)") == ()
+    for language in ("English", "Chinese", "Mongolian", "Punjabi"):
+        words = sorted(
+            w for w in set(_TITLE_SCRIPT_QUALIFIERS) | set(_TITLE_LANGUAGE_QUALIFIERS.get(language.lower(), {}))
+            if len(w) >= 3
+        )
+        for first in words:
+            for second in words:
+                glued = _resolve_pinned_title_scripts(f"{language} ({first}{second})")
+                separated = _resolve_pinned_title_scripts(f"{language} ({first}, {second})")
+                assert glued == separated, (language, first, second)
+    agent, aux = _title_via_both_wrappers(
+        monkeypatch, "Chinese (HantHans)", "How do I fix this error?", "修正方法の解説"
+    )
+    assert agent == (None, "llm_language_mismatch")
+    assert aux == (None, "llm_language_mismatch_aux")
