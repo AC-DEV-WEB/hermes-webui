@@ -155,6 +155,9 @@ what is accepted:
 
 - a qualifier on a language the map does not know (`Klingon-Latn`, `xx-Latn`,
   `Klingon (Arabic)`);
+- a language named only inside brackets after a word the map does not know
+  (`Klingon (English)`, `Русский (Russian)`);
+- a pin longer than 64 characters after normalisation;
 - two different qualifiers (`English-Latn-Cyrl`, `pa-Arab-Guru`), including
   two scripts validated the same way (`ja-Hira-Kana`,
   `Chinese (Simplified, Traditional)`), or `Latin` beside
@@ -176,10 +179,13 @@ language name counts anywhere outside brackets, so `Francais`, `Français`,
 `Traditional Chinese` and `Brazilian Portuguese` resolve. A word in brackets only
 qualifies: `Tamil (Arabic)` is Tamil in Arabic script, and `mn (Mongolian)` is
 Mongolian because the code and the name agree. A language's own name for itself
-is mostly not recognised, so add the English name in brackets:
-`Русский (Russian)` and `Hrvatski (Croatian)` resolve, because the name outside is
-written in a script the bracketed language uses (Cyrillic or Latin for
-Serbian, Bosnian and Uzbek).
+is mostly not recognised, and a bracketed English name beside it does not
+rescue it: `Русский (Russian)` and `Klingon (English)` are unresolved. Write the
+English name or a tag instead: `Russian` or `ru`.
+
+A pin longer than 64 characters after normalisation (lowercasing, diacritic
+folding, punctuation to spaces) is not parsed; it is unresolved, so the
+conversation check applies, and the title prompt leaves it out.
 
 The pin affects session titles only. It does not change the language the
 assistant replies in, and it has no effect when

@@ -4696,15 +4696,6 @@ _TITLE_CJK_SCRIPT_ALIASES = {
     'traditional': 'hant', 'simplified': 'hans',
 }
 
-# Scripts a language with no bare default is written in. The native-name
-# reading ("Српски (Serbian)") checks the outside words against these, since
-# an empty default would accept any script.
-_TITLE_NO_DEFAULT_SCRIPTS = {
-    'serbian': ('cyrillic', 'latin'),
-    'bosnian': ('latin', 'cyrillic'),
-    'uzbek': ('latin', 'cyrillic'),
-}
-
 
 def _title_pin_tokens(text: str, is_tag: bool) -> list:
     """Split a folded title pin into (token, bracketed) pairs.
@@ -4848,36 +4839,15 @@ def _title_unglued_qualifiers(token: str) -> list:
     return [token]
 
 
-def _resolve_pinned_title_scripts(language: str) -> tuple:
-    """Map a pinned title language to the script buckets a title may use, or ().
+# A pin longer than this, once folded, is not parsed: it is unresolved, so
+# the conversation check applies, and the title prompt leaves it out. The
+# longest real pin is a language, a region and a script qualifier; 64 leaves
+# room for that in any spelling.
+_TITLE_PIN_MAX_LENGTH = 64
 
-    The pin has to name exactly one known language. In a BCP 47 tag that is
-    the first subtag ("pt", "pt-BR", "ms-MY"); a POSIX locale suffix
-    ("en_US.UTF-8") is dropped first. In prose it is a language name
-    ("Portuguese", "Brazilian Portuguese", "Lao") anywhere outside brackets.
-    A two-letter code in prose collides with region codes and English words
-    ("Slovenian (SI)", "BE French", "No preference") and does not count on
-    its own, and a bracketed word only qualifies ("Klingon (Arabic)" names no
-    language). Two exceptions name a language from inside brackets: a code
-    outside that agrees with the bracketed name ("mn (Mongolian)"), and a
-    native name this table does not know, written in a script the bracketed
-    language uses ("Hrvatski (Croatian)").
 
-    With a language established, at most one script qualifier may narrow it
-    ("pa-Arab", "Punjabi (Arabic)", "sr-Latn", "Mongolian (Traditional)").
-    A name that is both a language and a script ("Arabic") is read as the
-    qualifier when another language is present. Equivalent qualifiers
-    collapse ("Punjabi (Arabic, Shahmukhi)", "pa-Arab-Aran").
-
-    Everything else fails closed to (), which callers treat as "validate
-    against the conversation instead" (#3293 behaviour): an unknown language
-    even with a qualifier ("Klingon-Latn", "xx-Latn"), two languages
-    ("English French"), two different qualifiers ("English-Latn-Cyrl"), and a
-    language with no default script and no qualifier ("Serbian").
-
-    Diacritics are folded first. In a tag, a singleton such as ``x`` starts
-    an extension or private-use section, so nothing from it on is read.
-    """
+def _fold_title_pin(language) -> str:
+    """Lowercase, separate and diacritic-fold a title pin for parsing."""
     # Non-ASCII symbols and punctuation become spaces before NFKD, which
     # would otherwise expand some into letters ("\u2122" into "tm") and glue
     # the qualifiers either side into one unknown token. Unicode hyphens are
@@ -4894,11 +4864,45 @@ def _resolve_pinned_title_scripts(language: str) -> tuple:
         else ' '
         for ch in raw
     )
-    folded = ''.join(
+    return ''.join(
         ch for ch in unicodedata.normalize('NFKD', raw)
         if not unicodedata.combining(ch)
     ).strip()
-    if not folded:
+
+
+def _resolve_pinned_title_scripts(language: str) -> tuple:
+    """Map a pinned title language to the script buckets a title may use, or ().
+
+    The pin has to name exactly one known language. In a BCP 47 tag that is
+    the first subtag ("pt", "pt-BR", "ms-MY"); a POSIX locale suffix
+    ("en_US.UTF-8") is dropped first. In prose it is a language name
+    ("Portuguese", "Brazilian Portuguese", "Lao") anywhere outside brackets.
+    A two-letter code in prose collides with region codes and English words
+    ("Slovenian (SI)", "BE French", "No preference") and does not count on
+    its own, and a bracketed word only qualifies ("Klingon (Arabic)" names no
+    language). One exception names a language from inside brackets: a code
+    outside that agrees with the bracketed name ("mn (Mongolian)"). A native
+    name this table does not know ("Hrvatski (Croatian)") names nothing.
+
+    With a language established, at most one script qualifier may narrow it
+    ("pa-Arab", "Punjabi (Arabic)", "sr-Latn", "Mongolian (Traditional)").
+    A name that is both a language and a script ("Arabic") is read as the
+    qualifier when another language is present. Equivalent qualifiers
+    collapse ("Punjabi (Arabic, Shahmukhi)", "pa-Arab-Aran").
+
+    Everything else fails closed to (), which callers treat as "validate
+    against the conversation instead" (#3293 behaviour): an unknown language
+    even with a qualifier ("Klingon-Latn", "xx-Latn"), two languages
+    ("English French"), two different qualifiers ("English-Latn-Cyrl"), and a
+    language with no default script and no qualifier ("Serbian").
+
+    Diacritics are folded first. In a tag, a singleton such as ``x`` starts
+    an extension or private-use section, so nothing from it on is read.
+    """
+    folded = _fold_title_pin(language)
+    if not folded or len(folded) > _TITLE_PIN_MAX_LENGTH:
+        # Past the cap the pin is not parsed at all, so its cost is bounded;
+        # it stays unresolved and the conversation check applies.
         return ()
     # A POSIX locale ("en_US.UTF-8", "sr_RS@latin") is a tag plus an encoding
     # and an optional modifier. The encoding says nothing about the script; a
@@ -4952,43 +4956,16 @@ def _resolve_pinned_title_scripts(language: str) -> tuple:
     ]
     tentative = set()
     if not named and not is_tag:
-        # Two prose forms name a language from inside brackets. "mn
-        # (Mongolian)": a code outside and its own language's name inside
-        # agree. A native name with the English name bracketed ("Hrvatski
-        # (Croatian)", or Russian written in Cyrillic followed by
-        # "(Russian)"): nothing outside is a known alias, and the words outside
-        # are written in a script the bracketed language uses. That script
-        # check is what keeps "Klingon (Arabic)" unresolved. "BE (French)"
-        # names nothing.
+        # One prose form names a language from inside brackets: a code
+        # outside and its own language's name inside agree ("mn (Mongolian)").
+        # A bracketed name otherwise only qualifies, so an unknown word before
+        # it names nothing ("Klingon (English)", "BE (French)"), and a native
+        # name the table does not know ("Русский (Russian)") leaves the pin
+        # unresolved.
         outside = {_TITLE_LANGUAGE_IDENTITY.get(t) for t, br in pairs if not br} - {None}
         bracketed = [(t, _TITLE_LANGUAGE_IDENTITY.get(t)) for t, br in pairs if br and len(t) > 2]
         inside = {name for _t, name in bracketed} - {None}
-        if len(inside) > 1:
-            # "(Russian, Latin)": Latin is the script, Russian the language.
-            inside = {name for t, name in bracketed if name and t not in _TITLE_SCRIPT_QUALIFIERS} or inside
-        if outside:
-            candidates = outside & inside
-        elif len(inside) == 1 and inside != {'latin'}:
-            # Bracketed "Latin" after Latin-script words ("Klingon (Latin)")
-            # reads the same as a script qualifier, so it never names Latin.
-            # A qualifier outside the brackets ("Русский (Russian) Cyrillic")
-            # is not part of the native name, so its letters are not counted.
-            raw = str(language or '').strip().lower()
-            words = ' '.join(
-                t for t, br in _title_pin_tokens(raw, False)
-                if not br and t not in _TITLE_SCRIPT_QUALIFIERS
-                and not any(t in own for own in _TITLE_LANGUAGE_QUALIFIERS.values())
-            )
-            counts = _script_counts(words)
-            written_in = max(counts, key=counts.get) if counts else ''
-            bracketed_language = next(iter(inside))
-            scripts_used = (
-                _TITLE_LANGUAGES[bracketed_language][0]
-                or _TITLE_NO_DEFAULT_SCRIPTS.get(bracketed_language, ())
-            )
-            candidates = inside if written_in in scripts_used else set()
-        else:
-            candidates = set()
+        candidates = outside & inside
         if len(candidates) == 1:
             agreed = candidates.pop()
             named = [(i, agreed) for i, t in enumerate(tokens) if _TITLE_LANGUAGE_IDENTITY.get(t) == agreed]
@@ -5095,10 +5072,12 @@ def _title_prompt_language_rule(user_text: str, pinned_language: Optional[str] =
     ``None`` means read the config here.
 
     Falls back to the previous "match the conversation start" instruction when
-    no language is configured, so unpinned installs are unaffected.
+    no language is configured, so unpinned installs are unaffected, and when
+    the pin is longer than ``_TITLE_PIN_MAX_LENGTH`` once folded, which is
+    also when validation falls back to the conversation.
     """
     language = _configured_title_language() if pinned_language is None else str(pinned_language).strip()
-    if language:
+    if language and len(_fold_title_pin(language)) <= _TITLE_PIN_MAX_LENGTH:
         return f"Write the title in {language}.\n"
     return "Match the language of the user question.\n"
 

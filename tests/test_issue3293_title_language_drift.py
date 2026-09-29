@@ -1159,15 +1159,6 @@ def test_equivalent_qualifiers_collapse():
     assert _resolve_pinned_title_scripts("Korean (Hanja, Hani)") == ("cjk",)
 
 
-def test_a_language_specific_qualifier_outside_a_native_name():
-    """"Traditional" qualifies Mongolian only, and outside the brackets it is
-    not part of the native name, so its letters do not decide the script."""
-    from api.streaming import _resolve_pinned_title_scripts
-
-    assert _resolve_pinned_title_scripts("\u041c\u043e\u043d\u0433\u043e\u043b (Mongolian) Traditional") == ("mongolian",)
-    assert _resolve_pinned_title_scripts("\u0420\u0443\u0441\u0441\u043a\u0438\u0439 (Russian) Cyrillic") == ("cyrillic",)
-
-
 def test_two_languages_fail_closed():
     """A pin naming two languages has no single answer. A language name that
     is also a script name beside another language is that language's script
@@ -1362,7 +1353,8 @@ def test_any_non_letter_separates_qualifiers():
                 "English (Latin\u00adCyrillic)", "English (Latin*Cyrillic)"):
         assert _resolve_pinned_title_scripts(pin) == (), pin
     assert _resolve_pinned_title_scripts("'English'") == ("latin",)
-    assert _resolve_pinned_title_scripts("\u0641\u0627\u0631\u0633\u06cc (Persian)") == ("arabic",)
+    assert _resolve_pinned_title_scripts("(Persian)") == ()
+    assert _resolve_pinned_title_scripts("Persian") == ("arabic",)
 
 
 def test_a_mark_or_digit_cannot_glue_two_qualifiers():
@@ -1445,17 +1437,6 @@ def test_fullwidth_brackets_and_modifier_separators_keep_their_structure(monkeyp
     assert aux == (None, "llm_language_mismatch_aux")
 
 
-def test_native_name_of_a_language_with_no_default_is_checked_against_its_scripts():
-    """Serbian has no bare default, but a native name beside it must still be
-    written in Cyrillic or Latin to name it."""
-    from api.streaming import _resolve_pinned_title_scripts
-
-    assert _resolve_pinned_title_scripts("\u0421\u0440\u043f\u0441\u043a\u0438 (Serbian, Latin)") == ("latin",)
-    assert _resolve_pinned_title_scripts("\u0421\u0440\u043f\u0441\u043a\u0438 (Serbian)") == ()
-    assert _resolve_pinned_title_scripts("\u0e44\u0e17\u0e22\u0e44\u0e17\u0e22 (Serbian, Latin)") == ()
-    assert _resolve_pinned_title_scripts("\u05e2\u05d1\u05e8\u05d9\u05ea (Uzbek, Latin)") == ()
-
-
 def test_posix_language_specific_script_modifier():
     from api.streaming import _resolve_pinned_title_scripts
 
@@ -1479,24 +1460,30 @@ def test_nested_brackets_stay_inside(monkeypatch):
     assert aux == (None, "llm_language_mismatch_aux")
 
 
-def test_native_name_with_the_english_name_bracketed():
-    """A pin written in its own script is unreadable to the ASCII-only table,
-    so a single bracketed English name decides."""
+def test_an_unknown_word_before_a_bracketed_language_names_nothing(monkeypatch):
+    """A bracketed language name only qualifies. An unknown word before it,
+    whether an invented name or a native name the table does not know, gives
+    it no authority, so the pin is unresolved and the #3293 conversation
+    check stays on."""
     from api.streaming import _resolve_pinned_title_scripts
 
-    assert _resolve_pinned_title_scripts("\u65e5\u672c\u8a9e (Japanese)") == ("cjk",)
-    assert _resolve_pinned_title_scripts("\u0420\u0443\u0441\u0441\u043a\u0438\u0439 (Russian)") == ("cyrillic",)
-    assert _resolve_pinned_title_scripts("\u0939\u093f\u0928\u094d\u0926\u0940 (Hindi)") == ("devanagari",)
-    assert _resolve_pinned_title_scripts("\u0e44\u0e17\u0e22 (Thai)") == ("thai",)
-    # the outside words must be written in a script the language uses
-    assert _resolve_pinned_title_scripts("Klingon (Arabic)") == ()
-    assert _resolve_pinned_title_scripts("\u041a\u043b\u0438\u043d\u0433\u043e\u043d (Arabic)") == ()
-    for pin in ("Hrvatski (Croatian)", "\u010ce\u0161tina (Czech)", "Ti\u1ebfng Vi\u1ec7t (Vietnamese)",
-                "Bahasa Indonesia (Indonesian)", "Kiswahili (Swahili)"):
-        assert _resolve_pinned_title_scripts(pin) == ("latin",), pin
-    # a bracketed script beside the bracketed language still qualifies
-    assert _resolve_pinned_title_scripts("\u0420\u0443\u0441\u0441\u043a\u0438\u0439 (Russian, Latin)") == ("latin",)
-    assert _resolve_pinned_title_scripts("\u0421\u0440\u043f\u0441\u043a\u0438 (Serbian, Latin)") == ("latin",)
+    for pin in ("Klingon (English)", "Klingon (Croatian)", "Klingon (Arabic)",
+                "\u041a\u043b\u0438\u043d\u0433\u043e\u043d (Arabic)",
+                "\u0420\u0443\u0441\u0441\u043a\u0438\u0439 (Russian)",
+                "\u0420\u0443\u0441\u0441\u043a\u0438\u0439 (Russian, Latin)",
+                "\u0421\u0440\u043f\u0441\u043a\u0438 (Serbian, Latin)",
+                "\u65e5\u672c\u8a9e (Japanese)", "Hrvatski (Croatian)",
+                "\u041c\u043e\u043d\u0433\u043e\u043b (Mongolian) Traditional"):
+        assert _resolve_pinned_title_scripts(pin) == (), pin
+    # a code outside that agrees with the bracketed name still names it
+    assert _resolve_pinned_title_scripts("mn (Mongolian)") == ("cyrillic", "mongolian")
+    assert _resolve_pinned_title_scripts("Deutsch (German)") == ("latin",)
+    for pin in ("Klingon (English)", "Klingon (Croatian)"):
+        agent, aux = _title_via_both_wrappers(
+            monkeypatch, pin, "\u30a8\u30e9\u30fc\u3092\u76f4\u3059\u65b9\u6cd5", "Error fix guide"
+        )
+        assert agent == (None, "llm_language_mismatch"), pin
+        assert aux == (None, "llm_language_mismatch_aux"), pin
 
 
 def test_bracketed_own_name_beside_another_qualifier_conflicts():
@@ -1506,3 +1493,37 @@ def test_bracketed_own_name_beside_another_qualifier_conflicts():
     assert _resolve_pinned_title_scripts("ta (Tamil, Latin)") == ()
     assert _resolve_pinned_title_scripts("ar (Arabic)") == ("arabic",)
     assert _resolve_pinned_title_scripts("mn (Mongolian)") == ("cyrillic", "mongolian")
+
+
+def test_a_pin_past_the_length_cap_is_not_parsed(monkeypatch):
+    """The folded pin is capped before parsing, so a long glued pin costs
+    nothing and stays unresolved; the prompt leaves it out too, so prompt and
+    validation agree."""
+    import time
+
+    from api.streaming import (
+        _TITLE_PIN_MAX_LENGTH,
+        _resolve_pinned_title_scripts,
+        _title_prompt_language_rule,
+    )
+
+    assert _TITLE_PIN_MAX_LENGTH == 64
+    head, tail = "English", "(Latin)"
+    at_cap = head + " " * (64 - len(head) - len(tail)) + tail
+    over_cap = head + " " * (65 - len(head) - len(tail)) + tail
+    assert len(at_cap) == 64 and len(over_cap) == 65
+    assert _resolve_pinned_title_scripts(at_cap) == ("latin",)
+    assert _resolve_pinned_title_scripts(over_cap) == ()
+    assert _title_prompt_language_rule("hi", pinned_language=at_cap) == f"Write the title in {at_cap}.\n"
+    assert _title_prompt_language_rule("hi", pinned_language=over_cap) == "Match the language of the user question.\n"
+
+    glued = "latn" * 1000
+    started = time.perf_counter()
+    assert _resolve_pinned_title_scripts(glued) == ()
+    assert _resolve_pinned_title_scripts("English (" + "latncyrl" * 1000 + ")") == ()
+    assert time.perf_counter() - started < 0.05
+    agent, aux = _title_via_both_wrappers(
+        monkeypatch, glued, "エラーを直す方法", "Error fix guide"
+    )
+    assert agent == (None, "llm_language_mismatch")
+    assert aux == (None, "llm_language_mismatch_aux")
