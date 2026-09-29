@@ -488,11 +488,16 @@ def test_unmatched_reasoning_slot_does_not_borrow_a_later_event_identity():
             "reasoning_content": "Second.",
         },
     ]
-    # One saved event spans two distinct transcript slots. Do not move it to the
-    # first slot or infer which part of its identity belongs to each message.
+    # One saved event spans two distinct transcript slots. Do not move its
+    # identity onto either transcript slot. A completed saved event that cannot
+    # be matched stays visible as its own row instead of being discarded.
     result = _settle([_row("First.Second.", "spanning-event")], messages=messages)
     assert [
-        (r.get("event_id"), r["text"])
+        (r.get("event_id"), r["text"], r["status"])
         for r in result["activity_rows"]
         if r["role"] == "thinking"
-    ] == [(None, "First."), (None, "Second.")]
+    ] == [
+        (None, "First.", "completed"),
+        (None, "Second.", "completed"),
+        ("spanning-event", "First.Second.", "completed"),
+    ]
