@@ -5078,9 +5078,10 @@ def _anchor_scene_settle_live_running_row(row, *, drop_live_thinking: bool = Fal
     if role not in ("thinking", "prose", "tool"):
         return row
     has_live_identity = _anchor_scene_row_has_live_identity(row)
-    if role == "thinking" and drop_live_thinking and has_live_identity:
+    is_running = str(row.get("status") or "").lower() == "running"
+    if role == "thinking" and drop_live_thinking and has_live_identity and is_running:
         return None
-    if str(row.get("status") or "").lower() != "running":
+    if not is_running:
         return row
     if not has_live_identity:
         return row
@@ -5180,12 +5181,15 @@ def _complete_hydrated_anchor_scene(messages, scene, message_index, *, message_o
         while reasoning_cursor < len(scene_thinking_rows):
             group.append(scene_thinking_rows[reasoning_cursor])
             reasoning_cursor += 1
-            group_key = _anchor_scene_text_key("".join(str(row.get("text") or "") for row in group))
-            if group_key == target_key:
+            group_text = [str(row.get("text") or "") for row in group]
+            group_key = _anchor_scene_text_key("\n".join(group_text))
+            compact_group_key = _anchor_scene_text_key("".join(group_text))
+            group_keys = {key for key in (group_key, compact_group_key) if key}
+            if target_key in group_keys:
                 reasoning_replacements[slot] = group
                 matched = True
                 break
-            if not target_key.startswith(group_key):
+            if not any(target_key.startswith(key) for key in group_keys):
                 break
         if not matched:
             reasoning_replacements.clear()
