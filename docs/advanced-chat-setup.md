@@ -176,7 +176,12 @@ first subtag. A POSIX locale's encoding and modifier are ignored
 a piece of the encoding that is exactly a script code (`en-Latn.Cyrl`
 conflicts). Otherwise a
 language name counts anywhere outside brackets, so `Francais`, `Français`,
-`Traditional Chinese` and `Brazilian Portuguese` resolve. A word in brackets only
+`Traditional Chinese` and `Brazilian Portuguese` resolve. The same rule
+applies to languages whose names are also script names (Arabic, Greek, Thai,
+Latin and others), so `Egyptian Arabic` and `Modern Greek` resolve, and so do
+`Klingon Arabic` and `Klingon-Latin`: the unknown word is read as a modifier of
+the named language. `Klingon (Arabic)` stays unresolved, because a bracketed
+word only qualifies. A word in brackets only
 qualifies: `Tamil (Arabic)` is Tamil in Arabic script, and `mn (Mongolian)` is
 Mongolian because the code and the name agree. A language's own name for itself
 is mostly not recognised, and a bracketed English name beside it does not
