@@ -15156,6 +15156,25 @@ def _run_agent_streaming(
                 and getattr(s, 'active_stream_id', None) == stream_id
                 and getattr(s, 'pending_user_message', None)):
             _last_resort_sync_from_core(s, stream_id, _agent_lock)
+        # Mirror the workspace into state.db sessions.cwd on EVERY exit (success,
+        # provider error, exception, cancel): the Agent creates the row during
+        # run_conversation() but only stamps cwd for CLI sources, so Desktop
+        # filed WebUI sessions under "Home". Reuse the Agent's own SessionDB —
+        # it is bound to this session's profile (#2762). Never creates a row.
+        if s is not None and agent is not None:
+            try:
+                from api.state_sync import sync_session_cwd
+                _cwd_db = getattr(agent, '_session_db', None)
+                if _cwd_db is not None and getattr(_cwd_db, '_conn', True) is None:
+                    _cwd_db = None
+                sync_session_cwd(
+                    s.session_id,
+                    s.workspace,
+                    profile=getattr(s, 'profile', None),
+                    db=_cwd_db,
+                )
+            except Exception:
+                logger.debug("Failed to sync session cwd to state.db", exc_info=True)
         _clear_thread_env()  # TD1: always clear thread-local context
         if _streaming_cron_profile_home_token is not None:
             _STREAMING_CRON_PROFILE_HOME.reset(_streaming_cron_profile_home_token)

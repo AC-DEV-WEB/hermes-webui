@@ -1,11 +1,14 @@
 """
-Hermes Web UI -- Optional state.db sync bridge.
+Hermes Web UI -- state.db sync bridge.
 
 Mirrors WebUI session metadata (token usage, title, model) into the
 hermes-agent state.db so that /insights, session lists, and cost
 tracking include WebUI activity.
 
-This is opt-in via the 'sync_to_insights' setting (default: off).
+Usage/title mirroring is opt-in via the 'sync_to_insights' setting
+(default: off). ``sync_session_cwd`` is not: it only fills the workspace
+into the row the Agent already created, so clients that group sessions by
+``cwd`` (Hermes Desktop) place WebUI sessions under their workspace.
 All operations are wrapped in try/except -- if state.db is unavailable,
 locked, or the schema doesn't match, the WebUI continues normally.
 
@@ -130,6 +133,68 @@ def sync_session_start(session_id: str, model=None, profile: Optional[str] = Non
             db.close()
         except Exception:
             logger.debug("Failed to close state.db")
+
+
+def _normalize_session_cwd(workspace) -> str:
+    """Canonical text form of a WebUI workspace for ``sessions.cwd``.
+
+    Trailing separators are stripped (``/a/b/`` and ``/a/b`` are one
+    workspace) so equality checks and prefix grouping stay stable; a bare
+    root (``/``) is kept as-is.
+    """
+    text = str(workspace or "").strip()
+    if not text:
+        return ""
+    return text.rstrip("/\\") or text
+
+
+def sync_session_cwd(session_id: str, workspace, profile: Optional[str] = None, db=None) -> bool:
+    """Mirror a WebUI session's workspace into ``sessions.cwd`` in state.db.
+
+    The agent creates the state.db row lazily on the first turn but only
+    stamps ``cwd`` for CLI-family sources, so WebUI rows were left with an
+    empty ``cwd`` and clients that group sessions by working directory
+    (Hermes Desktop) filed them under "Home" instead of their workspace.
+
+    Only an EXISTING row is updated; this never creates one, so sessions that
+    never sent a message stay out of state.db exactly as before. A row that
+    already records the same ``cwd`` is left untouched, so the per-row Git
+    metadata generation is only bumped on a real workspace change (where the
+    stale ``git_branch``/``git_repo_root`` are cleared by
+    ``update_session_cwd``). Not gated by ``sync_to_insights``: the row is
+    written by the agent regardless of that setting.
+
+    ``db`` lets the streaming path reuse the agent's own SessionDB (already
+    bound to the session's profile); it is not closed here. Otherwise the
+    profile's state.db is opened via ``_get_state_db(profile=...)`` (#2762).
+    Returns True when a row was updated.
+    """
+    cwd = _normalize_session_cwd(workspace)
+    if not session_id or not cwd:
+        return False
+    owns_db = db is None
+    if owns_db:
+        db = _get_state_db(profile=profile)
+    if not db:
+        return False
+    try:
+        if not hasattr(db, "update_session_cwd"):
+            return False
+        row = db.get_session(session_id)
+        if not row:
+            return False
+        if _normalize_session_cwd(row.get("cwd")) == cwd:
+            return False
+        return db.update_session_cwd(session_id, cwd) is not None
+    except Exception:
+        logger.debug("Failed to sync session cwd to state.db for %s", session_id)
+        return False
+    finally:
+        if owns_db:
+            try:
+                db.close()
+            except Exception:
+                logger.debug("Failed to close state.db")
 
 
 def sync_session_usage(session_id: str, input_tokens: int=0, output_tokens: int=0,

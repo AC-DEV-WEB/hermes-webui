@@ -16854,6 +16854,14 @@ def handle_post(handler, parsed) -> bool:
                 close_terminal(body["session_id"])
             except Exception:
                 logger.debug("Failed to close workspace terminal after workspace update")
+            # Keep state.db's cwd in step with the new workspace so clients that
+            # group by cwd (Hermes Desktop) move the session with it. No-op when
+            # the session has no state.db row yet (never sent a message).
+            try:
+                from api.state_sync import sync_session_cwd
+                sync_session_cwd(s.session_id, new_ws, profile=getattr(s, "profile", None))
+            except Exception:
+                logger.debug("Failed to sync session cwd after workspace update")
         set_last_workspace(new_ws, profile=getattr(s, "profile", None))
         return j(
             handler,
@@ -26595,6 +26603,14 @@ def _handle_chat_sync(handler, body):
                 persist_user_message=msg,
             )
     finally:
+        # Same as the streaming worker's teardown: mirror the workspace into the
+        # Agent-created state.db row on every exit, including a raised turn.
+        try:
+            from api.state_sync import sync_session_cwd
+
+            sync_session_cwd(s.session_id, s.workspace, profile=getattr(s, "profile", None))
+        except Exception:
+            logger.debug("Failed to sync session cwd to state.db", exc_info=True)
         with _ENV_LOCK:
             if old_cwd is None:
                 os.environ.pop("TERMINAL_CWD", None)
