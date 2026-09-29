@@ -4850,6 +4850,18 @@ def _title_unglued_qualifiers(token: str) -> list:
 # longest real pin is a language, a region and a script qualifier; 64 leaves
 # room for that in any spelling.
 _TITLE_PIN_MAX_LENGTH = 64
+# The same applies to a pin longer than this before folding. Folding drops
+# combining marks, so without it a pin padded with them could fold under the
+# cap while the raw text still costs a linear fold and reaches the prompt.
+_TITLE_PIN_MAX_RAW_LENGTH = 256
+
+
+def _capped_title_pin(language) -> str:
+    """Return the folded pin, or '' when it is past either length cap."""
+    if len(str(language or '').strip()) > _TITLE_PIN_MAX_RAW_LENGTH:
+        return ''
+    folded = _fold_title_pin(language)
+    return folded if len(folded) <= _TITLE_PIN_MAX_LENGTH else ''
 
 
 def _fold_title_pin(language) -> str:
@@ -4905,10 +4917,10 @@ def _resolve_pinned_title_scripts(language: str) -> tuple:
     Diacritics are folded first. In a tag, a singleton such as ``x`` starts
     an extension or private-use section, so nothing from it on is read.
     """
-    folded = _fold_title_pin(language)
-    if not folded or len(folded) > _TITLE_PIN_MAX_LENGTH:
-        # Past the cap the pin is not parsed at all, so its cost is bounded;
-        # it stays unresolved and the conversation check applies.
+    folded = _capped_title_pin(language)
+    if not folded:
+        # Past either cap the pin is not parsed at all, so its cost is
+        # bounded; it stays unresolved and the conversation check applies.
         return ()
     # A POSIX locale ("en_US.UTF-8", "sr_RS@latin") is a tag plus an encoding
     # and an optional modifier. The encoding says nothing about the script; a
@@ -5079,11 +5091,12 @@ def _title_prompt_language_rule(user_text: str, pinned_language: Optional[str] =
 
     Falls back to the previous "match the conversation start" instruction when
     no language is configured, so unpinned installs are unaffected, and when
-    the pin is longer than ``_TITLE_PIN_MAX_LENGTH`` once folded, which is
-    also when validation falls back to the conversation.
+    the pin is past ``_TITLE_PIN_MAX_RAW_LENGTH`` or, once folded,
+    ``_TITLE_PIN_MAX_LENGTH``, which is also when validation falls back to the
+    conversation.
     """
     language = _configured_title_language() if pinned_language is None else str(pinned_language).strip()
-    if language and len(_fold_title_pin(language)) <= _TITLE_PIN_MAX_LENGTH:
+    if language and _capped_title_pin(language):
         return f"Write the title in {language}.\n"
     return "Match the language of the user question.\n"
 

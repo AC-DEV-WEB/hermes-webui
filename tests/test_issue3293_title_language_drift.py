@@ -1555,3 +1555,37 @@ def test_glued_qualifiers_resolve_like_separated_ones(monkeypatch):
     )
     assert agent == (None, "llm_language_mismatch")
     assert aux == (None, "llm_language_mismatch_aux")
+
+
+def test_a_pin_past_the_raw_length_cap_is_not_folded(monkeypatch):
+    """Folding drops combining marks, so a pin padded with them could fold
+    under the 64-character cap. The raw length is capped too, before any
+    folding, and the prompt applies the same check."""
+    import time
+
+    from api.streaming import (
+        _TITLE_PIN_MAX_RAW_LENGTH,
+        _resolve_pinned_title_scripts,
+        _title_prompt_language_rule,
+    )
+
+    assert _TITLE_PIN_MAX_RAW_LENGTH == 256
+    head, tail = "English", " (Latin)"
+    at_cap = head + "́" * (256 - len(head) - len(tail)) + tail
+    over_cap = at_cap + "́"
+    assert len(at_cap) == 256 and len(over_cap) == 257
+    assert _resolve_pinned_title_scripts(at_cap) == ("latin",)
+    assert _resolve_pinned_title_scripts(over_cap) == ()
+    assert _title_prompt_language_rule("hi", pinned_language=at_cap) == f"Write the title in {at_cap}.\n"
+    assert _title_prompt_language_rule("hi", pinned_language=over_cap) == "Match the language of the user question.\n"
+
+    padded = head + "́" * 200000 + tail
+    started = time.perf_counter()
+    assert _resolve_pinned_title_scripts(padded) == ()
+    assert time.perf_counter() - started < 0.01
+    assert _title_prompt_language_rule("hi", pinned_language=padded) == "Match the language of the user question.\n"
+    agent, aux = _title_via_both_wrappers(
+        monkeypatch, padded, "エラーを直す方法", "Error fix guide"
+    )
+    assert agent == (None, "llm_language_mismatch")
+    assert aux == (None, "llm_language_mismatch_aux")
