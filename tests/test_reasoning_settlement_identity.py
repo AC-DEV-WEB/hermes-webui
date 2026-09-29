@@ -262,6 +262,41 @@ def test_transcript_aggregate_keeps_live_segment_identities(redeliver):
     assert [r["status"] for r in thoughts] == ["completed", "completed"]
 
 
+def test_list_shaped_reasoning_reload_keeps_two_completed_saved_events():
+    reasoning = [
+        {"text": "Plan the change."},
+        {"text": "Verify the result."},
+    ]
+    result = _settle(
+        [
+            _row("Plan the change.", "event-a", status="completed"),
+            _row("Verify the result.", "event-b", status="completed"),
+        ],
+        reasoning=reasoning,
+    )
+
+    thoughts = [r for r in result["activity_rows"] if r["role"] == "thinking"]
+    assert [(r.get("event_id"), r["text"], r["status"]) for r in thoughts] == [
+        ("event-a", "Plan the change.", "completed"),
+        ("event-b", "Verify the result.", "completed"),
+    ]
+
+
+def test_unmatched_completed_saved_reasoning_is_not_dropped():
+    result = _settle(
+        [_row("Saved completed reasoning", "event-a", status="completed")],
+        reasoning="Different transcript reasoning",
+    )
+
+    thoughts = [r for r in result["activity_rows"] if r["role"] == "thinking"]
+    assert any(
+        r.get("event_id") == "event-a"
+        and r["text"] == "Saved completed reasoning"
+        and r["status"] == "completed"
+        for r in thoughts
+    )
+
+
 @pytest.mark.parametrize("identity_first", [True, False])
 def test_legacy_projection_dedupes_without_erasing_other_roles(identity_first):
     plain = _row("Same words")
