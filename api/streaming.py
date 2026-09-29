@@ -4984,6 +4984,14 @@ def _resolve_pinned_title_scripts(language: str) -> tuple:
         bracketed = [(t, _TITLE_LANGUAGE_IDENTITY.get(t)) for t, br in pairs if br and len(t) > 2]
         inside = {name for _t, name in bracketed} - {None}
         candidates = outside & inside
+        if any(
+            name and name not in candidates and t not in _TITLE_SCRIPT_QUALIFIERS
+            for t, name in bracketed
+        ):
+            # A second bracketed language ("mn (Mongolian, Russian)") makes
+            # the pin ambiguous; a bracketed script name ("mn (Mongolian,
+            # Cyrillic)") only qualifies.
+            candidates = set()
         if len(candidates) == 1:
             agreed = candidates.pop()
             named = [(i, agreed) for i, t in enumerate(tokens) if _TITLE_LANGUAGE_IDENTITY.get(t) == agreed]

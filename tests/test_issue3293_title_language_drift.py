@@ -1589,3 +1589,21 @@ def test_a_pin_past_the_raw_length_cap_is_not_folded(monkeypatch):
     )
     assert agent == (None, "llm_language_mismatch")
     assert aux == (None, "llm_language_mismatch_aux")
+
+
+def test_a_second_bracketed_language_keeps_the_pin_unresolved(monkeypatch):
+    """A code outside names the bracketed language it agrees with, but a
+    second bracketed language makes the pin ambiguous; a bracketed script
+    name still only qualifies."""
+    from api.streaming import _resolve_pinned_title_scripts
+
+    for pin in ("mn (Mongolian, Russian)", "ar (Arabic, English)", "mn (Mongolian) (Russian)"):
+        assert _resolve_pinned_title_scripts(pin) == (), pin
+    assert _resolve_pinned_title_scripts("mn (Mongolian)") == ("cyrillic", "mongolian")
+    assert _resolve_pinned_title_scripts("pa (Punjabi, Shahmukhi)") == ("arabic",)
+    agent, aux = _title_via_both_wrappers(
+        monkeypatch, "mn (Mongolian, Russian)", "How do I fix this error?",
+        "Исправление ошибки",
+    )
+    assert agent == (None, "llm_language_mismatch")
+    assert aux == (None, "llm_language_mismatch_aux")
