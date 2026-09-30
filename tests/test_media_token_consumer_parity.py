@@ -141,3 +141,27 @@ def test_sentence_punctuation_detaches_from_remote_file_url_while_server_consume
         assert not routes._session_media_token_allows_image_path(
             "s-media-parity", local_image, {"image/png"}
         )
+
+
+@pytest.mark.parametrize("wrapped", [False, True])
+def test_backtick_filename_matches_renderer_auth_and_snapshot(
+    media_parity_driver, tmp_path, monkeypatch, wrapped
+):
+    from api import routes
+    from api.media_snapshots import annotate_media_snapshots
+
+    image = tmp_path / ("ok.png" if wrapped else "ok`final.png")
+    _write_png(image)
+    text = f"`MEDIA:{image}`" if wrapped else f"MEDIA:{image}"
+    rendered = _render(media_parity_driver, text)
+    encoded = urllib.parse.quote(str(image), safe="")
+    assert f"path={encoded}" in rendered
+    assert f"path={encoded}%60" not in rendered
+    session = SimpleNamespace(messages=[{"role": "assistant", "content": text}])
+    with mock.patch.object(routes, "get_session", return_value=session):
+        assert routes._session_media_token_allows_image_path("backticks", image, {"image/png"})
+    monkeypatch.setenv("MEDIA_ALLOWED_ROOTS", str(tmp_path))
+    monkeypatch.setenv("HERMES_WEBUI_MEDIA_SNAPSHOT_DIR", str(tmp_path / "snapshots"))
+    messages = [{"role": "assistant", "content": text}]
+    assert annotate_media_snapshots(messages) == 1
+    assert str(image.resolve()) in messages[0]["_media_snapshots"]
