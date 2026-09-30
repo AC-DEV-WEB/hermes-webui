@@ -17,6 +17,7 @@ Session object already accumulates totals across turns. This avoids
 any double-counting risk.
 """
 import logging
+import ntpath
 import os
 from pathlib import Path
 from typing import Optional
@@ -139,13 +140,18 @@ def _normalize_session_cwd(workspace) -> str:
     """Canonical text form of a WebUI workspace for ``sessions.cwd``.
 
     Trailing separators are stripped (``/a/b/`` and ``/a/b`` are one
-    workspace) so equality checks and prefix grouping stay stable; a bare
-    root (``/``) is kept as-is.
+    workspace) so equality checks and prefix grouping stay stable. A path
+    that is only an anchor is returned untouched: ``/``, a drive root such
+    as ``C:\\`` (``C:`` would be drive-relative, a different path) and a UNC
+    share root such as ``\\\\host\\share\\``.
     """
     text = str(workspace or "").strip()
     if not text:
         return ""
-    return text.rstrip("/\\") or text
+    _drive, rest = ntpath.splitdrive(text)
+    if not rest.strip("/\\"):
+        return text
+    return text.rstrip("/\\")
 
 
 def sync_session_cwd(session_id: str, workspace, profile: Optional[str] = None, db=None) -> bool:

@@ -112,6 +112,22 @@ def test_root_workspace_is_kept(fake_db):
     assert fake_db.rows["sess-root"]["cwd"] == "/"
 
 
+@pytest.mark.parametrize("anchor", ["C:\\", "C:/", "D:\\", "\\\\host\\share\\", "\\\\host\\share"])
+def test_windows_anchors_are_preserved(anchor):
+    """``C:`` is drive-relative and ``\\\\host`` is not a share: never strip an anchor."""
+    assert state_sync._normalize_session_cwd(anchor) == anchor
+
+
+@pytest.mark.parametrize("raw, expected", [
+    ("C:\\work\\proj\\", "C:\\work\\proj"),
+    ("\\\\host\\share\\proj\\", "\\\\host\\share\\proj"),
+    ("/home/u/proj/", "/home/u/proj"),
+    ("/home/u/proj//", "/home/u/proj"),
+])
+def test_trailing_separator_stripped_below_the_anchor(raw, expected):
+    assert state_sync._normalize_session_cwd(raw) == expected
+
+
 def test_reuses_caller_db_without_closing_it(monkeypatch):
     """The streaming path passes the Agent's own profile-bound SessionDB."""
     monkeypatch.setattr(
@@ -206,7 +222,10 @@ def _agent_class(db, outcome):
     return _Agent
 
 
-def _run_stream(db, workspace, outcome, sid):
+def _run_stream(db, workspace, outcome, sid, *, current_session=None, during_turn=None):
+    """Drive the real worker. ``current_session`` is what ``get_session()``
+    resolves once ``during_turn`` ran (a detached-snapshot race); by default
+    it is the worker's own session object."""
     stream_id = f"stream-{sid}"
     session = Session(session_id=sid, title="t")
     session.messages, session.context_messages = [], []
@@ -217,16 +236,34 @@ def _run_stream(db, workspace, outcome, sid):
     models.SESSIONS[sid] = session
     config.STREAMS[stream_id] = queue.Queue()
     config.STREAM_PARTIAL_TEXT[stream_id] = ""
+    holder = {"current": session}
 
     agent_cls = _agent_class(db, outcome)
     original_init = agent_cls.__init__
+    original_run = agent_cls.run_conversation
 
     def _init(self, **kwargs):
         original_init(self, **kwargs)
         self._stream_id = stream_id
 
+    def _run(self, **kwargs):
+        try:
+            return original_run(self, **kwargs)
+        finally:
+            if during_turn is not None:
+                during_turn(session)
+            if current_session is not None:
+                holder["current"] = current_session
+
+    def _get_session(_sid, *a, **k):
+        cur = holder["current"]
+        if isinstance(cur, Exception):
+            raise cur
+        return cur
+
     agent_cls.__init__ = _init
-    with mock.patch.object(streaming, "get_session", return_value=session), \
+    agent_cls.run_conversation = _run
+    with mock.patch.object(streaming, "get_session", side_effect=_get_session), \
          mock.patch.object(streaming, "_get_ai_agent", return_value=agent_cls), \
          mock.patch.object(streaming, "resolve_model_provider", return_value=("test-model", "test-provider", None)), \
          mock.patch("api.config.get_config", return_value={}), \
@@ -247,6 +284,39 @@ def test_streaming_turn_records_workspace_on_every_exit(stream_env, monkeypatch,
     _run_stream(db, stream_env, outcome, sid)
     assert sid in db.rows, "the Agent double should have created the row"
     assert db.rows[sid]["cwd"] == str(stream_env)
+
+
+@pytest.mark.parametrize("outcome", ["success", "cancel", "raise"])
+def test_stale_worker_does_not_overwrite_a_newer_workspace(stream_env, tmp_path, monkeypatch, outcome):
+    """Cancel clears ownership early; the canonical session then moves to
+    workspace B. The unwinding worker still holds workspace A and must not
+    put ``sessions.cwd`` back to A."""
+    db = _FakeSessionDB()
+    monkeypatch.setattr(state_sync, "_get_state_db", lambda profile=None: None)
+    sid = f"stale-{outcome}"
+    workspace_b = tmp_path / "ws" / "other"
+    workspace_b.mkdir(parents=True)
+
+    current = Session(session_id=sid, title="t")
+    current.workspace = str(workspace_b)  # the detached-successor object
+
+    def _move_while_worker_unwinds(worker_session):
+        worker_session.active_stream_id = None  # cancel_stream() fence
+        db.update_session_cwd(sid, str(workspace_b))  # /api/session/update
+
+    _run_stream(db, stream_env, outcome, sid,
+                current_session=current, during_turn=_move_while_worker_unwinds)
+    assert db.rows[sid]["cwd"] == str(workspace_b)
+
+
+def test_unresolvable_current_session_skips_the_write(stream_env, monkeypatch):
+    """Fail closed: no current session object, no state.db write from the
+    worker-held snapshot."""
+    db = _FakeSessionDB()
+    monkeypatch.setattr(state_sync, "_get_state_db", lambda profile=None: None)
+    _run_stream(db, stream_env, "success", "gone",
+                current_session=RuntimeError("session store unavailable"))
+    assert db.rows["gone"]["cwd"] is None
 
 
 # ── synchronous /api/chat and workspace change ──────────────────────────────

@@ -15161,18 +15161,27 @@ def _run_agent_streaming(
         # run_conversation() but only stamps cwd for CLI sources, so Desktop
         # filed WebUI sessions under "Home". Reuse the Agent's own SessionDB —
         # it is bound to this session's profile (#2762). Never creates a row.
+        # The worker-held ``s`` may be a detached snapshot (cancel admitted a
+        # successor, or /api/session/update moved the workspace while this
+        # worker unwound), so publish the CURRENT session's workspace, resolved
+        # under the canonical lock, and fail closed when it cannot be resolved
+        # (same rule as _resolve_current_session_for_write's other callers).
         if s is not None and agent is not None:
             try:
                 from api.state_sync import sync_session_cwd
-                _cwd_db = getattr(agent, '_session_db', None)
-                if _cwd_db is not None and getattr(_cwd_db, '_conn', True) is None:
-                    _cwd_db = None
-                sync_session_cwd(
-                    s.session_id,
-                    s.workspace,
-                    profile=getattr(s, 'profile', None),
-                    db=_cwd_db,
-                )
+                _cwd_lock = _agent_lock if _agent_lock is not None else contextlib.nullcontext()
+                with _cwd_lock:
+                    _cwd_session = _resolve_current_session_for_write(s)
+                    if _cwd_session is not None:
+                        _cwd_db = getattr(agent, '_session_db', None)
+                        if _cwd_db is not None and getattr(_cwd_db, '_conn', True) is None:
+                            _cwd_db = None
+                        sync_session_cwd(
+                            _cwd_session.session_id,
+                            _cwd_session.workspace,
+                            profile=getattr(_cwd_session, 'profile', None),
+                            db=_cwd_db,
+                        )
             except Exception:
                 logger.debug("Failed to sync session cwd to state.db", exc_info=True)
         _clear_thread_env()  # TD1: always clear thread-local context
