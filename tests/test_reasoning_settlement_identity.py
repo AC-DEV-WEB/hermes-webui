@@ -331,6 +331,30 @@ def test_malformed_identity_does_not_merge_distinct_text(invalid_id):
     ]
 
 
+
+def test_review_metadata_reasoning_wins_over_no_tool_thinking_content_part():
+    messages = [
+        {"role": "user", "content": "question"},
+        {
+            "role": "assistant",
+            "content": [
+                {"type": "thinking", "thinking": "First thought"},
+                {"type": "text", "text": "Final answer"},
+            ],
+            "reasoning_content": "Additional thought",
+        },
+    ]
+    result = _settle(
+        [_row("Additional thought", "event-metadata")],
+        messages=messages,
+    )
+    thoughts = [r for r in result["activity_rows"] if r["role"] == "thinking"]
+    assert [(r.get("event_id"), r["text"]) for r in thoughts] == [
+        ("event-metadata", "Additional thought")
+    ]
+
+
+
 @pytest.mark.parametrize("legacy_first", [False, True])
 @pytest.mark.parametrize("reasoning_shape", ["metadata", "content-parts"])
 @pytest.mark.parametrize("status", ["running", "completed"])

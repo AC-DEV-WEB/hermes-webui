@@ -5165,7 +5165,8 @@ def _complete_hydrated_anchor_scene(messages, scene, message_index, *, message_o
         ]
         parts = [part for part in parts if _anchor_scene_clean_text(part)]
         if not _anchor_scene_message_has_content_tool_use(message):
-            parts = ["".join(parts) or _anchor_scene_message_reasoning_text(message)]
+            metadata_reasoning = _anchor_scene_message_reasoning_text(message)
+            parts = [metadata_reasoning or "".join(parts)]
         elif not parts:
             parts = [_anchor_scene_message_reasoning_text(message)]
         for ordinal, text in enumerate(parts):
