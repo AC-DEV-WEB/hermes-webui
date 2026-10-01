@@ -25,6 +25,30 @@ def _write_png(path):
     path.write_bytes(b"\x89PNG\r\n\x1a\n" + b"\x00" * 64)
 
 
+class _MediaHandler:
+    def __init__(self):
+        self.status = None
+        self.sent_headers: list[tuple[str, str]] = []
+        self.body = bytearray()
+        self.headers = {}
+        self.wfile = self
+
+    def send_response(self, code):
+        self.status = code
+
+    def send_header(self, key, value):
+        self.sent_headers.append((key, value))
+
+    def end_headers(self):
+        pass
+
+    def write(self, data):
+        self.body.extend(data)
+
+    def header(self, key):
+        return next((value for name, value in self.sent_headers if name == key), "")
+
+
 def test_wrapped_inner_punctuation_matches_renderer_share_auth_and_snapshot(
     media_parity_driver, tmp_path, monkeypatch
 ):
@@ -109,7 +133,7 @@ def test_entity_balanced_local_media_matches_renderer_stream_server_consumers(
 
 
 @pytest.mark.parametrize("punctuation", [".", ",", "?"])
-def test_sentence_punctuation_detaches_from_remote_file_url_while_server_consumers_bypass_remote_refs(
+def test_bare_remote_path_preserves_ambiguous_trailing_bytes_while_server_consumers_bypass_remote_refs(
     media_parity_driver, tmp_path, punctuation
 ):
     from api import routes, shares
@@ -119,9 +143,7 @@ def test_sentence_punctuation_detaches_from_remote_file_url_while_server_consume
     text = f"MEDIA:{clean_ref}{punctuation}"
 
     rendered = _render(media_parity_driver, text)
-    assert f'src="{clean_ref}"' in rendered
-    assert f'src="{clean_ref}{punctuation}"' not in rendered
-    assert punctuation in rendered
+    assert f'src="{clean_ref}{punctuation}"' in rendered
 
     # Public-share embedding intentionally handles only local refs; a remote
     # token must pass through byte-for-byte instead of being normalized as a
@@ -141,6 +163,52 @@ def test_sentence_punctuation_detaches_from_remote_file_url_while_server_consume
         assert not routes._session_media_token_allows_image_path(
             "s-media-parity", local_image, {"image/png"}
         )
+
+
+@pytest.mark.parametrize("suffix", ["!", ";", ":"])
+def test_bare_local_suffix_bytes_select_the_exact_file_across_consumers(
+    media_parity_driver, tmp_path, monkeypatch, suffix
+):
+    from api import routes, shares
+    from api.helpers import split_media_token_ref
+    from api.media_snapshots import annotate_media_snapshots
+
+    base = tmp_path / "chart.png"
+    suffixed = tmp_path / f"chart.png{suffix}"
+    base.write_bytes(b"blue-base-file")
+    suffixed.write_bytes(f"red-suffixed-file-{suffix}".encode())
+    text = f"MEDIA:{suffixed}"
+    match = re.search(r"MEDIA:([^\s\)\]]+)", text)
+    assert match is not None
+    assert split_media_token_ref(text, match) == (str(suffixed), "")
+
+    rendered = _render(media_parity_driver, text)
+    encoded = urllib.parse.quote(str(suffixed), safe="").replace("%21", "!")
+    assert f"api/media?path={encoded}" in rendered
+
+    monkeypatch.setenv("MEDIA_ALLOWED_ROOTS", str(tmp_path))
+    monkeypatch.setenv(
+        "HERMES_WEBUI_MEDIA_SNAPSHOT_DIR", str(tmp_path / "media_snapshots")
+    )
+    monkeypatch.setattr("api.auth.is_auth_enabled", lambda: False)
+    handler = _MediaHandler()
+    parsed = SimpleNamespace(
+        path="/api/media", query=f"path={urllib.parse.quote(str(suffixed), safe='')}"
+    )
+    routes._handle_media(handler, parsed)
+    assert handler.status == 200
+    assert bytes(handler.body) == suffixed.read_bytes()
+    assert bytes(handler.body) != base.read_bytes()
+    assert suffixed.name in handler.header("Content-Disposition")
+
+    messages = [{"role": "assistant", "content": text}]
+    assert annotate_media_snapshots(messages) == 1
+    assert str(suffixed.resolve()) in messages[0]["_media_snapshots"]
+    assert str(base.resolve()) not in messages[0]["_media_snapshots"]
+
+    # A punctuation-bearing path is not an image by extension. Public shares
+    # must therefore redact it, never silently embed the distinct base image.
+    assert shares._embed_share_media(text, allowed_roots=(tmp_path,)) == shares._PLACEHOLDER
 
 
 @pytest.mark.parametrize("wrapped", [False, True])

@@ -244,13 +244,22 @@ class TestMediaTokenBoundaries:
         assert f"path={encoded_ref}." not in out
         assert preserved in out
 
-    @pytest.mark.parametrize("punctuation", [".", ",", ";", ":", "!", "?", ")"])
-    def test_sentence_punctuation_stays_outside_media_ref(self, driver_path, punctuation):
+    @pytest.mark.parametrize(
+        ("punctuation", "encoded"),
+        [(".", "."), (",", "%2C"), (";", "%3B"), (":", "%3A"), ("!", "!"), ("?", "%3F")],
+    )
+    def test_bare_local_ref_preserves_ambiguous_trailing_bytes(
+        self, driver_path, punctuation, encoded
+    ):
         encoded_ref = "%2Fworkspace%2Freport.xlsx"
         out = _render(driver_path, f"MEDIA:/workspace/report.xlsx{punctuation}")
+        assert f"path={encoded_ref}{encoded}" in out
+
+    def test_regex_excluded_closer_stays_outside_media_ref(self, driver_path):
+        encoded_ref = "%2Fworkspace%2Freport.xlsx"
+        out = _render(driver_path, "MEDIA:/workspace/report.xlsx)")
         assert f"path={encoded_ref}" in out
-        assert f"path={encoded_ref}{punctuation}" not in out
-        assert punctuation in out
+        assert ")" in out
 
     def test_unmatched_or_internal_delimiters_remain_in_media_ref(self, driver_path):
         unmatched = _render(driver_path, "MEDIA:/workspace/report.xlsx*")

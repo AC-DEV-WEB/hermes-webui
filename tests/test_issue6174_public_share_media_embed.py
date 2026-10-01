@@ -59,7 +59,7 @@ def test_valid_workspace_image_is_embedded(sandbox):
     "text, suffix",
     [
         ("**MEDIA:ok.png**", "**"),
-        ("MEDIA:ok.png.", "."),
+        ("**MEDIA:ok.png.**", ".**"),
         ('"MEDIA:ok.png".', '".'),
         ("'MEDIA:ok.png'.", "'."),
     ],
@@ -71,6 +71,12 @@ def test_wrapped_or_punctuated_workspace_image_is_embedded_without_losing_suffix
     assert "base64," in out
     assert shares._PLACEHOLDER not in out
     assert out.endswith(suffix)
+
+
+def test_bare_punctuation_is_preserved_as_filename_and_not_embedded(sandbox):
+    out = _embed("MEDIA:ok.png.", [sandbox["ws"]])
+    assert out == shares._PLACEHOLDER
+    assert "base64," not in out
 
 
 def test_relative_path_traversal_is_blocked(sandbox):

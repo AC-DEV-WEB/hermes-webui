@@ -156,13 +156,25 @@ def split_media_token_ref(text: str, match) -> tuple[str, str] | None:
             return None
         if candidate.endswith(delimiter) and len(candidate) > len(delimiter):
             ref = candidate[: -len(delimiter)]
-            suffix = delimiter + after_delimiter + suffix
+            inner_punctuation = _re.search(r"[.,;:!?]+$", ref)
+            remote_query_or_fragment = bool(
+                _re.match(r"^https?://", ref, _re.IGNORECASE)
+                and ("#" in ref or "?" in ref.split("://", 1)[1])
+            )
+            if (
+                inner_punctuation
+                and len(ref) > len(inner_punctuation.group(0))
+                and not remote_query_or_fragment
+            ):
+                ref = ref[: inner_punctuation.start()]
+                suffix = inner_punctuation.group(0) + delimiter + after_delimiter + suffix
+            else:
+                suffix = delimiter + after_delimiter + suffix
             break
-    is_remote = bool(_re.match(r"^https?://", ref, _re.IGNORECASE))
-    punctuation = None if is_remote else _re.search(r"[.,;:!?]+$", ref)
-    if punctuation and len(ref) > len(punctuation.group(0)):
-        ref = ref[: punctuation.start()]
-        suffix = punctuation.group(0) + suffix
+    # A bare trailing punctuation byte is ambiguous: it may be prose, but it
+    # may also be part of a real local filename or remote URL. Only the quote
+    # and delimiter branches above have evidence from a matching opener that a
+    # closer is outside the MEDIA ref, so preserve every other byte verbatim.
     if not ref:
         return None
     return ref, suffix

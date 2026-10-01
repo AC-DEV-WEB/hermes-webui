@@ -655,19 +655,29 @@ class TestSmdMediaRealParserBehaviour(unittest.TestCase):
                 self.assertIsNone(result["ref"])
                 self.assertEqual(result["remainder"], expected)
 
-    def test_real_smd_parser_keeps_suffixes_outside_media_refs(self):
-        for case_name in ("bold", "boldSplit", "trailingPeriod", "trailingPeriodEnd"):
+    def test_real_smd_parser_keeps_proven_wrappers_outside_media_refs(self):
+        for case_name in ("bold", "boldSplit"):
             for mode, result in self.cases["boundaries"][case_name].items():
                 with self.subTest(case=case_name, mode=mode):
                     self.assertIn('data-ref="/tmp/report.xlsx"', result["html"])
                     self.assertNotIn('data-ref="/tmp/report.xlsx**"', result["html"])
-                    self.assertNotIn('data-ref="/tmp/report.xlsx."', result["html"])
+
+    def test_real_smd_parser_preserves_ambiguous_bare_suffix_bytes(self):
+        for case_name in ("trailingPeriod", "trailingPeriodEnd"):
+            for mode, result in self.cases["boundaries"][case_name].items():
+                with self.subTest(case=case_name, mode=mode):
+                    self.assertIn('data-ref="/tmp/report.xlsx."', result["html"])
 
         for punctuation, modes in self.cases["punctuation"].items():
             for mode, result in modes.items():
                 with self.subTest(punctuation=punctuation, mode=mode):
-                    self.assertIn('data-ref="/tmp/report.xlsx"', result["html"])
-                    self.assertIn(punctuation, result["text"])
+                    if punctuation == ")":
+                        self.assertIn('data-ref="/tmp/report.xlsx"', result["html"])
+                        self.assertIn(punctuation, result["text"])
+                    else:
+                        self.assertIn(
+                            f'data-ref="/tmp/report.xlsx{punctuation}"', result["html"]
+                        )
 
     def test_real_smd_parser_preserves_unmatched_delimiter_in_ref(self):
         for mode, result in self.cases["boundaries"]["unmatchedDelimiter"].items():

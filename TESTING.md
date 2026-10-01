@@ -2054,9 +2054,10 @@ Bridged CLI sessions:
 
 ### MEDIA boundary regression checks (#6923)
 
-- Render `MEDIA:https://example.com/a.png!`, `a.png;`, and `a.png:`:
-  the requested URL must keep its final byte. A single sentence-ending `.`,
-  `,`, or `?` may detach from an otherwise complete path-only file URL.
+- Bare local paths and remote path-only URLs preserve every trailing byte,
+  including `.`, `,`, `;`, `:`, `!`, and `?`; those bytes are ambiguous and
+  may be part of the actual filename or URL. Punctuation detaches only when a
+  matching Markdown or quote wrapper proves that it is outside the token.
 - Query and fragment values retain all punctuation, including punctuation-only values.
 - Render `MEDIA:_`, `MEDIA:__`, and `MEDIA:*`: these are local filenames.
   Matching empty wrappers such as `**MEDIA:**` must remain prose.

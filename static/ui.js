@@ -2884,30 +2884,22 @@ function _mediaTokenParts(source, matchOffset, rawRef){
     if(candidate===delimiter) return null;
     if(candidate.endsWith(delimiter)&&candidate.length>delimiter.length){
       ref=candidate.slice(0,-delimiter.length);
-      suffix=delimiter+afterDelimiter;
+      const innerPunctuation=ref.match(/[.,;:!?]+$/)?.[0]||'';
+      const remoteQueryOrFragment=/^https?:\/\//i.test(ref)
+        &&(ref.includes('#')||ref.slice(ref.indexOf('://')+3).includes('?'));
+      if(innerPunctuation&&ref.length>innerPunctuation.length&&!remoteQueryOrFragment){
+        ref=ref.slice(0,-innerPunctuation.length);
+        suffix=innerPunctuation+delimiter+afterDelimiter;
+      }else{
+        suffix=delimiter+afterDelimiter;
+      }
       break;
     }
   }
-  const remoteValue=/^https?:\/\//i.test(ref);
-  let punctuation=ref.match(/[.,;:!?]+$/);
-  if(remoteValue&&punctuation){
-    // Query/fragment values may legitimately end in punctuation (including
-    // signed URLs), so never trim them. Only one sentence-ending '.', ',' or
-    // '?' may detach from a file URL; !, ; and : are meaningful path bytes.
-    try{
-      new URL(ref);
-      const hasQueryOrFragment=ref.includes('#')||ref.slice(0,-punctuation[0].length).includes('?');
-      const withoutPunctuation=ref.slice(0,-punctuation[0].length);
-      const afterRef=String(source||'').charAt((Number(matchOffset)||0)+6+String(rawRef||'').length);
-      const sentenceBoundary=afterRef===''||/\s/.test(afterRef);
-      const looksLikeFile=/\.[A-Za-z0-9][A-Za-z0-9_-]{0,15}$/.test(withoutPunctuation);
-      if(hasQueryOrFragment||!looksLikeFile||!/^[.,?]$/.test(punctuation[0])||(!suffix&&!sentenceBoundary)) punctuation=null;
-    }catch(_){ punctuation=null; }
-  }
-  if(punctuation&&ref.length>punctuation[0].length){
-    ref=ref.slice(0,-punctuation[0].length);
-    suffix=punctuation[0]+suffix;
-  }
+  // A bare trailing punctuation byte is ambiguous: it may be prose, but it
+  // may also be part of a real local filename or remote URL. Only the quote
+  // and delimiter branches above have evidence from a matching opener that a
+  // closer is outside the MEDIA ref, so preserve every other byte verbatim.
   if(!ref) return null;
   return [ref,suffix];
 }
