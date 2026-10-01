@@ -48,7 +48,21 @@
   budget now resets only when the window reaches a position it hasn't just visited. (#6654, #6717 by
   @webtecnica)
 
+### Security
+
+- **Only assistant and tool messages can grant access to a file outside the allowed folders.** `/api/media` serves a
+  file outside the allowed roots only when the requested session contains an exact `MEDIA:` reference to it. That
+  check excluded only user messages, so a system message, or a message with no role, also granted access. It is now
+  an allow-list: only `assistant` and `tool` messages can grant, and the hard-deny list still wins. Thanks
+  @laitekin. (#7297, fixes #7294)
+
 ### Fixed
+
+- **CSV, diff/patch and Excalidraw previews open from chat.** These files were served as
+  `application/octet-stream`, which the `MEDIA:` preview path rejects, so their previews failed. They now have their own
+  types (`text/csv`, `text/x-diff`, `application/vnd.excalidraw+json`), still behind the same exact assistant/tool
+  reference. Preview and download URLs also keep the session they were opened from, so switching sessions while a
+  preview loads can't reuse another session's URL. Thanks @laitekin. (#7297)
 
 - **The "Configured" group in the model picker shows model names, not raw ids.** Rows at the top of the picker
   (composer and Settings → Default model) used the routing id as their title, e.g.
