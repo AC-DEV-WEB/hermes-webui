@@ -55,6 +55,7 @@ def main() -> int:
 
     parser = argparse.ArgumentParser()
     parser.add_argument("--artifact-dir", type=Path, required=True)
+    parser.add_argument("--filtered-reasoning", choices=("visible-prose", "final-answer"))
     args = parser.parse_args()
     args.artifact_dir.mkdir(parents=True, exist_ok=True)
     repo = Path(__file__).resolve().parents[1]
@@ -87,8 +88,19 @@ def main() -> int:
                 "no_proxy": "127.0.0.1,localhost",
             }
         )
+        seed_source = SEED
+        if args.filtered_reasoning:
+            final = "Two distinct reasoning events were recorded."
+            reasoning = "Visible progress" if args.filtered_reasoning == "visible-prose" else final
+            seed_source = seed_source.replace(
+                '    {"role": "assistant", "content": "Two distinct reasoning events were recorded.", "_ts": 2},',
+                f'    {{"role": "assistant", "content": "Visible progress", "reasoning_content": {reasoning!r}, "_ts": 2}},\n'
+                f'    {{"role": "assistant", "content": {final!r}, "_ts": 3}},',
+            ).replace('"message_index": 1', '"message_index": 2').replace(
+                '"status": "completed"', '"stream_id": "stream-proof", "status": "running"'
+            )
         seed = subprocess.run(
-            [sys.executable, "-c", SEED],
+            [sys.executable, "-c", seed_source],
             cwd=repo,
             env=env,
             capture_output=True,
@@ -129,7 +141,25 @@ def main() -> int:
                                 "() => typeof S !== 'undefined' && S.session?.session_id === 'reasoning-proof' && S.messages?.some(m => m._anchor_activity_scene)",
                                 timeout=15000,
                             )
-                        _expand_settled_worklog(page)
+                        if args.filtered_reasoning:
+                            # Missing Thinking rows are the intended negative
+                            # result; capture it rather than timing out waiting
+                            # for a worklog that the broken baseline omitted.
+                            page.evaluate("""() => {
+                                for (const group of document.querySelectorAll(
+                                    '.assistant-turn [data-anchor-settled-scene-owner="1"]'
+                                )) {
+                                    const summary = group.querySelector('.tool-worklog-summary,.tool-call-group-summary');
+                                    if (group.classList.contains('tool-call-group-collapsed') && summary) {
+                                        _toggleActivityGroup(summary);
+                                    }
+                                    if (group.getAttribute('data-worklog-rows-deferred') === '1') {
+                                        _materializeDeferredWorklogRows(group);
+                                    }
+                                }
+                            }""")
+                        else:
+                            _expand_settled_worklog(page)
                         snap = _activity_snapshot(page)
                         rows = [
                             row for row in snap["rows"] if row["role"] == "thinking"

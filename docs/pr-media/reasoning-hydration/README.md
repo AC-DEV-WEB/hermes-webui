@@ -29,3 +29,32 @@ stops its own server/browser; it does not modify production sessions. Test setup
 initially lacked the seed directory and a trial's blanket external-resource block
 caused console failures. Neither was counted as product RED evidence. The final
 baseline/candidate comparison uses the same corrected driver.
+
+## October 1 filtered-reasoning regression
+
+Baseline: reviewed head `5ca72febbab3` plus normal upstream merge
+`dd5451903686` (product fix absent). A persisted running Thinking row carries
+its exact stream identity. Transcript reasoning either repeats visible progress
+or matches the final answer; neither should consume a reconciliation slot.
+
+Both variants fail the intended DOM identity assertion on baseline: the two saved
+Thinking events are absent on load and hard reload at 1280px and 390px. After the
+slot filter, both variants preserve A/B exactly once in all eight combinations.
+The four images below show the visible-prose variant after hard reload; the
+final-answer variant has the same missing/preserved event outcome.
+
+| State | Desktop (1280px) | Narrow (390px) |
+| --- | --- | --- |
+| Before | ![Saved Thinking events missing](before-filter-1280.png) | ![Saved Thinking events missing](before-filter-390.png) |
+| After | ![Both saved Thinking events retained](after-filter-1280.png) | ![Both saved Thinking events retained](after-filter-390.png) |
+
+```sh
+.venv/bin/python tests/browser_reasoning_identity_hydration.py --filtered-reasoning visible-prose --artifact-dir /tmp/reasoning-filter-prose
+.venv/bin/python tests/browser_reasoning_identity_hydration.py --filtered-reasoning final-answer --artifact-dir /tmp/reasoning-filter-final
+```
+
+These remain synthetic, isolated Chromium checks; no physical-device or live
+provider behavior is claimed. An initial trial lacked per-row stream ownership
+and passed on baseline, so it is not negative proof. A second trial waited for
+an absent worklog and timed out; the final driver captures missing rows and fails
+on their identities instead of counting a timeout as evidence.

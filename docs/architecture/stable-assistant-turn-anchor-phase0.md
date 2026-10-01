@@ -64,6 +64,11 @@ when that slice landed; they do not override the current coverage summary above.
 
 ## State Layers
 
+Settled reasoning reconciliation allocates transcript slots only for reasoning
+that survives the visible-prose duplicate and final-answer filters. Filtered
+metadata must not consume or discard a distinct saved reasoning event. Durable
+event identity remains authoritative for deduplication and reload.
+
 | Layer | Current surface | Phase 0 anchor policy |
 | --- | --- | --- |
 | RuntimeAdapter / run-journal Event Envelope | `event_id`, `run_id`, `seq`, `Last-Event-ID` / `after_seq` | Preferred identity and replay dedupe source. |

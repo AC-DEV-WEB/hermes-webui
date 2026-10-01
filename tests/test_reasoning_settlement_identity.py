@@ -525,3 +525,42 @@ def test_unmatched_reasoning_slot_does_not_borrow_a_later_event_identity():
         (None, "Second.", "completed"),
         ("spanning-event", "First.Second.", "completed"),
     ]
+
+
+@pytest.mark.parametrize("filtered_kind", ["visible-prose", "final-answer"])
+@pytest.mark.parametrize("shape", ["metadata", "content-parts"])
+def test_filtered_transcript_reasoning_does_not_consume_distinct_saved_event(filtered_kind, shape):
+    repeated = "Visible progress" if filtered_kind == "visible-prose" else "Final answer"
+    assistant = {"role": "assistant", "content": "Visible progress", "reasoning_content": repeated}
+    if shape == "content-parts":
+        assistant["content"] = [
+            {"type": "thinking", "thinking": repeated},
+            {"type": "text", "text": "Visible progress"},
+        ]
+    messages = [
+        {"role": "user", "content": "question"},
+        assistant,
+        {"role": "assistant", "content": "Final answer"},
+    ]
+    result = _settle([_row("Distinct saved thought", "saved-event", status="running")], messages=messages)
+    thinking = [r for r in result["activity_rows"] if r["role"] == "thinking"]
+    assert [(r.get("event_id"), r["text"], r["status"]) for r in thinking] == [
+        ("saved-event", "Distinct saved thought", "completed"),
+    ]
+    reloaded = _settle(json.loads(json.dumps(result))["activity_rows"], messages=messages)
+    assert reloaded["activity_rows"] == result["activity_rows"]
+
+
+def test_visible_content_part_reasoning_with_tools_keeps_its_saved_identity():
+    messages = [
+        {"role": "user", "content": "question"},
+        {"role": "assistant", "content": [
+            {"type": "thinking", "thinking": "Visible progress"},
+            {"type": "text", "text": "Visible progress"},
+            {"type": "tool_use", "id": "call-1", "name": "terminal", "input": {}},
+        ]},
+        {"role": "assistant", "content": "Final answer"},
+    ]
+    result = _settle([_row("Visible progress", "saved-event", status="running")], messages=messages)
+    thinking = [row for row in result["activity_rows"] if row["role"] == "thinking"]
+    assert [(row.get("event_id"), row["text"]) for row in thinking] == [("saved-event", "Visible progress")]

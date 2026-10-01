@@ -5164,13 +5164,22 @@ def _complete_hydrated_anchor_scene(messages, scene, message_index, *, message_o
             if isinstance(part, dict) and part.get("type") in ("thinking", "reasoning")
         ]
         parts = [part for part in parts if _anchor_scene_clean_text(part)]
+        metadata_slots = not _anchor_scene_message_has_content_tool_use(message) or not parts
         if not _anchor_scene_message_has_content_tool_use(message):
             metadata_reasoning = _anchor_scene_message_reasoning_text(message)
             parts = [metadata_reasoning or "".join(parts)]
         elif not parts:
             parts = [_anchor_scene_message_reasoning_text(message)]
+        visible_text_key = _anchor_scene_text_key(_anchor_scene_message_text(message))
         for ordinal, text in enumerate(parts):
-            if _anchor_scene_clean_text(text):
+            text_key = _anchor_scene_text_key(text)
+            # A reasoning row filtered during emission must not consume a saved
+            # event's reconciliation slot or cause distinct live rows to drop.
+            if (
+                _anchor_scene_clean_text(text)
+                and (not metadata_slots or text_key != visible_text_key)
+                and not _anchor_scene_row_looks_like_final_answer(text_key, final_key)
+            ):
                 transcript_reasoning_slots[(local_idx, ordinal)] = text
 
     reasoning_replacements = {}
