@@ -44,6 +44,13 @@
 
 ### Fixed
 
+- **Background subagent results that were pending at a restart are delivered again.** Current Hermes
+  Agent no longer reloads undelivered async-delegation completions from its durable ledger when it is
+  imported; it waits for the first consumer to ask. The WebUI reads the completion queue directly
+  rather than through the Agent's own drain, so it never asked, and a subagent result that finished
+  while the WebUI was restarting stayed in the ledger without reaching the parent chat. Both WebUI
+  drain paths now ask the Agent to restore the ledger first. Older Agent builds, which restore on
+  import, are unaffected. Thanks @franksong2702. (#7927)
 - **A phone that drops off the network no longer turns a live stream into a server error.** When a
   client vanished at the network layer (left the Wi-Fi, a Tailscale peer dropped), the next write on
   a long-lived stream (chat, gateway events, terminal output, approvals, clarify) failed with a
