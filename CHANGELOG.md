@@ -44,6 +44,13 @@
 
 ### Fixed
 
+- **Model aliases route to the provider they name.** A canonical `model_aliases` entry or a provider-qualified
+  legacy alias (`sol: openai-codex/gpt-5.6-sol`) now selects that provider, even when a same-named model exists
+  on another provider; an unqualified legacy alias keeps the old active-provider-then-fuzzy lookup. Sessions
+  keep the alias's target model. Aliases with their own `base_url`/`api_key`/`key_env` are resolved server-side
+  and never sent to the browser. On Gateway and runner chat, a provider-only alias is sent as its resolved model
+  and provider, and an endpoint/credential alias is refused with HTTP 400
+  (`model_alias_requires_in_process_backend`) before anything is dispatched. Thanks @snoyberg. (#7567)
 - **A chat start that fails before the agent runs no longer leaves a phantom message behind.** With eager
   session saving on, the submitted prompt was written to disk before setup finished. If the start was then
   rejected, that prompt stayed in the transcript as a turn that never ran, and a retry showed it twice. A
