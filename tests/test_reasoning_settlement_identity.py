@@ -620,3 +620,63 @@ def test_intermediate_no_tool_content_does_not_consume_later_metadata_reasoning_
         ("prose", None, "Visible progress"),
         ("thinking", "saved-event", "Distinct saved thought"),
     ]
+
+
+@pytest.mark.parametrize("transcript_text,saved_text", [
+    ("```python\nprint(42)\n```", "```python print(42) ```"),
+    ("    print(42)\n    print(43)", "print(42)\n    print(43)"),
+    ("- a\n- b\n\n1. c", "- a - b 1. c"),
+], ids=["fenced-code", "indented-code", "lists"])
+@pytest.mark.parametrize("role", ["prose", "thinking"])
+@pytest.mark.parametrize("field,location", [
+    ("event_id", "row"), ("event_id", "identity"),
+    ("row_id", "row"), ("local_id", "payload"),
+])
+@pytest.mark.parametrize("tool_source", ["tool_calls", "content-tool", "external"])
+def test_transcript_prose_owns_exact_markdown_when_inheriting_saved_identity(
+    transcript_text, saved_text, role, field, location, tool_source
+):
+    from api import routes
+
+    call = {"id": "call-1", "name": "read_file", "output": "Full transcript tool output", "assistant_msg_idx": 1}
+    assistant = {"role": "assistant", "content": transcript_text if role == "prose" else "Inspecting the code"}
+    if role == "thinking":
+        assistant["reasoning_content"] = transcript_text
+    if tool_source == "content-tool":
+        assistant["content"] = [
+            {"type": "text", "text": assistant["content"]},
+            {"type": "tool_use", "id": "call-1", "name": "read_file", "input": {}, "output": call["output"]},
+        ]
+    elif tool_source == "tool_calls":
+        assistant["tool_calls"] = [call]
+    messages = [
+        {"role": "user", "content": "question"}, assistant,
+        {"role": "assistant", "content": "Final answer"},
+    ]
+    saved = _row(saved_text, "saved-identity", field=field, location=location, role=role, status="running")
+    saved.setdefault("payload", {}).update({"text": saved_text, "saved_only": True})
+    stale_tool = routes._anchor_scene_tool_row({**call, "output": "Stale preview"}, 0, 1, "stream-1")
+    external = [call] if tool_source == "external" else None
+    result = _settle([saved, stale_tool, copy.deepcopy(saved)], messages=messages, tool_calls=external)
+    matched = [row for row in result["activity_rows"] if row["role"] == role]
+    assert len(matched) == 1
+    row = matched[0]
+    assert row["text"] == (transcript_text if role == "prose" else saved_text)
+    identity = row if location == "row" else row[location]
+    assert identity[field] == "saved-identity"
+    if role == "prose":
+        assert row["payload"]["text"] == transcript_text
+        assert "saved_only" not in row["payload"]
+        assert row["source_event_type"] == "settled_message"
+        assert row["group"]["assistant_msg_idx"] == 1
+    assert row["status"] == "completed"
+    tools = [row for row in result["activity_rows"] if row["role"] == "tool"]
+    assert len(tools) == 1
+    assert tools[0]["tool"]["output"] == call["output"]
+    roles = [row["role"] for row in result["activity_rows"]]
+    if role == "thinking" and tool_source == "content-tool":
+        assert roles.index(role) > roles.index("tool")
+    else:
+        assert roles.index(role) < roles.index("tool")
+    reloaded = _settle(json.loads(json.dumps(result))["activity_rows"], messages=messages, tool_calls=external)
+    assert reloaded["activity_rows"] == result["activity_rows"]

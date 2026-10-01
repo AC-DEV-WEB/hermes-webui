@@ -73,6 +73,12 @@ transcript Thinking row. Missing or empty metadata must not turn unrendered
 thinking/reasoning content parts into slots that discard distinct saved events.
 Top-level `tool_calls`, partial calls, and external tool records do not change
 that content boundary.
+When a saved identified prose event matches an identity-less transcript row,
+inherit only its durable identity fields (`event_id`, `row_id`, or legacy
+`local_id`). The transcript row retains its exact Markdown text, payload, source,
+and grouping metadata; whitespace-normalized equality does not make a trimmed
+or flattened live prose copy authoritative for the body. Thinking reconciliation
+continues to preserve the saved event's text and identity.
 
 | Layer | Current surface | Phase 0 anchor policy |
 | --- | --- | --- |

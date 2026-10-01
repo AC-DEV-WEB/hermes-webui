@@ -90,3 +90,48 @@ python tests/browser_reasoning_identity_hydration.py --no-tool-reasoning empty-m
 The driver launches isolated temporary state/workspace and an Agent-free stub;
 no real provider or personal session is used. Existing visible-prose/final-answer
 filtering and equal-text/different-ID browser cases also passed.
+
+
+## October 1 third review: transcript Markdown owns the prose body
+
+Baseline: reviewed head `b0bf02710664` plus pinned upstream
+`e33da25c6cfde3ea337e1b6d7701161d02e995cf`, normal merge
+`b6198a23fa9493f9a24d5f45c549fbd722196e52`. The saved running prose row
+carries `saved-prose-event` / `saved-prose-row`, but its live text has collapsed
+whitespace. The settled transcript contains exact Markdown and a `read_file`
+tool call before the final answer.
+
+Before the repair, hydration inherits the saved row's flattened body as well as
+its identity: the fenced block has no native `pre code` element, and the two
+lists collapse into one item. After the repair, hydration retains the exact
+transcript text and payload, source and grouping metadata, while inheriting
+only durable identity fields. The browser keeps a native fenced block with
+`print(42)`, an unordered list with `a` / `b`, an ordered list with `c`, one tool
+row, and one final answer through both initial load and hard reload. The images
+below capture hard reload at 1280 × 900 and 390 × 900.
+
+| Fixture / state | Desktop | Narrow/mobile |
+| --- | --- | --- |
+| Fenced code before | [Before](markdown-fenced-code-before-1280.png) | [Before](markdown-fenced-code-before-390.png) |
+| Fenced code after | [After](markdown-fenced-code-after-1280.png) | [After](markdown-fenced-code-after-390.png) |
+| Lists before | [Before](markdown-lists-before-1280.png) | [Before](markdown-lists-before-390.png) |
+| Lists after | [After](markdown-lists-after-1280.png) | [After](markdown-lists-after-390.png) |
+
+```sh
+.venv/bin/python tests/browser_reasoning_identity_hydration.py --transcript-markdown fenced-code --artifact-dir /tmp/prose-fenced
+.venv/bin/python tests/browser_reasoning_identity_hydration.py --transcript-markdown lists --artifact-dir /tmp/prose-lists
+.venv/bin/python tests/browser_reasoning_identity_hydration.py --transcript-markdown indented-code --artifact-dir /tmp/prose-indented
+```
+
+The exact indented-code review fixture is covered too: hydration must retain
+`    print(42)\n    print(43)` byte-for-byte in scene text and payload. Current
+`renderMd` already renders this fixture as a paragraph when given the exact
+transcript, rather than a native indented code block. The browser's indented
+case checks source ownership and parity with that existing renderer; this
+repair does not claim to add native indented-code syntax support. Existing
+Thinking text/identity behavior and metadata-only no-tool reasoning boundaries
+remain covered by the same driver and focused regressions.
+
+These are synthetic persisted sessions, real HTTP loads and Chromium DOM
+checks, with isolated temporary Hermes/state/workspace and no provider request
+or personal data. Machine-readable snapshots capture both load and reload.

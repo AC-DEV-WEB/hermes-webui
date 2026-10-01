@@ -5340,6 +5340,23 @@ def _complete_hydrated_anchor_scene(messages, scene, message_index, *, message_o
         if row.get("role") in ("prose", "thinking") and text_key:
             seen_text_keys.append({"role": row.get("role"), "text_key": text_key})
         next_row = copy.deepcopy(row)
+        if row.get("role") == "prose" and replace_text_index is not None:
+            # The transcript owns Markdown and row metadata; saved prose supplies identity only.
+            next_row = copy.deepcopy(rows[replace_text_index])
+            for location in (None, "identity", "payload"):
+                source = row if location is None else row.get(location)
+                if not isinstance(source, dict):
+                    continue
+                for field in ("event_id", "row_id", "local_id"):
+                    value = source.get(field)
+                    if not isinstance(value, str) or not value.strip():
+                        continue
+                    if field == "row_id" and value.strip().lower().startswith(("settled:", "hydrated:", "activity:")):
+                        continue
+                    if location is not None and not isinstance(next_row.get(location), dict):
+                        next_row[location] = {}
+                    target = next_row if location is None else next_row[location]
+                    target[field] = value
         next_row["order_index"] = target_index
         next_row["seq"] = target_index
         if replace_text_index is not None and 0 <= replace_text_index < len(rows):

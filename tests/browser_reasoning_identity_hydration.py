@@ -50,6 +50,41 @@ s.save()
 """
 
 
+
+MARKDOWN_CASES = {
+    "fenced-code": ("```python\nprint(42)\n```", "```python print(42) ```"),
+    "indented-code": ("    print(42)\n    print(43)", "print(42)\n    print(43)"),
+    "lists": ("- a\n- b\n\n1. c", "- a - b 1. c"),
+}
+
+MARKDOWN_SEED = r"""
+from api.models import Session
+from api.routes import _assistant_anchor_scene_message_ref
+import os
+transcript = os.environ["HERMES_PROOF_TRANSCRIPT"]
+saved = os.environ["HERMES_PROOF_SAVED_PROSE"]
+messages = [
+    {"role": "user", "content": "Keep the recorded Markdown structure.", "_ts": 1},
+    {"role": "assistant", "content": transcript, "_ts": 2,
+     "tool_calls": [{"id": "call-proof", "name": "read_file", "output": "Full transcript tool output"}]},
+    {"role": "assistant", "content": "Final answer", "_ts": 3},
+]
+s = Session(session_id="reasoning-proof", title="Transcript Markdown proof", profile="default",
+            workspace=os.environ["HERMES_WEBUI_DEFAULT_WORKSPACE"], messages=messages)
+row = {"row_id": "saved-prose-row", "event_id": "saved-prose-event", "role": "prose",
+       "kind": "process_prose", "source_event_type": "token", "status": "running",
+       "stream_id": "stream-proof", "text": saved, "payload": {"text": saved},
+       "identity": {"event_id": "saved-prose-event"}}
+ref = _assistant_anchor_scene_message_ref(messages[-1])
+s.anchor_activity_scenes = {ref: {"message_index": 2, "message_ref": ref, "stream_id": "stream-proof",
+    "scene": {"version": "activity_scene_v1", "mode": "compact_worklog", "activity_rows": [row],
+              "identity": {"session_id": s.session_id, "stream_id": "stream-proof", "run_id": "run-proof"},
+              "final_answer": "Final answer", "terminal_state": "completed"}}}
+s.path.parent.mkdir(parents=True, exist_ok=True)
+s.save()
+"""
+
+
 def main() -> int:
     from playwright.sync_api import sync_playwright
 
@@ -58,6 +93,7 @@ def main() -> int:
     scenario = parser.add_mutually_exclusive_group()
     scenario.add_argument("--filtered-reasoning", choices=("visible-prose", "final-answer"))
     scenario.add_argument("--no-tool-reasoning", choices=("missing-metadata", "empty-metadata"))
+    scenario.add_argument("--transcript-markdown", choices=("fenced-code", "indented-code", "lists"))
     args = parser.parse_args()
     args.artifact_dir.mkdir(parents=True, exist_ok=True)
     repo = Path(__file__).resolve().parents[1]
@@ -96,6 +132,12 @@ def main() -> int:
             ("reasoning-event-a", "Checking the same condition.", "completed"),
             ("reasoning-event-b", "Checking the same condition.", "completed"),
         ]
+        if args.transcript_markdown:
+            transcript, saved_prose = MARKDOWN_CASES[args.transcript_markdown]
+            env.update(HERMES_PROOF_TRANSCRIPT=transcript, HERMES_PROOF_SAVED_PROSE=saved_prose)
+            seed_source = MARKDOWN_SEED
+            expected_row_ids = []
+            expected_thoughts = []
         if args.no_tool_reasoning:
             metadata = ', "reasoning_content": ""' if args.no_tool_reasoning == "empty-metadata" else ""
             seed_source = seed_source.replace(
@@ -191,20 +233,57 @@ def main() -> int:
                             (message._anchor_activity_scene?.activity_rows || [])
                                 .filter(row => row.role === 'thinking')
                                 .map(row => [row.event_id, row.text, row.status]))""")
+                        markdown = None
+                        markdown_valid = True
+                        if args.transcript_markdown:
+                            markdown = page.evaluate("""texts => {
+                                const prose = document.querySelector('[data-anchor-row-id="saved-prose-row"]');
+                                const reference = document.createElement('div');
+                                reference.innerHTML = renderMd(texts[0]);
+                                return {
+                                    sceneProse: S.messages.flatMap(message =>
+                                        (message._anchor_activity_scene?.activity_rows || [])
+                                            .filter(row => row.role === 'prose')
+                                            .map(row => [row.event_id, row.row_id, row.text, row.payload?.text])),
+                                    rawText: prose?.dataset.rawText,
+                                    referenceHtml: reference.innerHTML,
+                                    renderedHtml: prose?.querySelector('.msg-body')?.innerHTML,
+                                    referenceCodeBlocks: Array.from(reference.querySelectorAll('pre code')).map(el => el.textContent),
+                                    codeBlocks: Array.from(prose?.querySelectorAll('pre code') || []).map(el => el.textContent),
+                                    unordered: Array.from(prose?.querySelectorAll('ul > li') || []).map(el => el.textContent.trim()),
+                                    ordered: Array.from(prose?.querySelectorAll('ol > li') || []).map(el => el.textContent.trim()),
+                                };
+                            }""", MARKDOWN_CASES[args.transcript_markdown])
+                            transcript = MARKDOWN_CASES[args.transcript_markdown][0]
+                            markdown_valid = (
+                                markdown["sceneProse"] == [["saved-prose-event", "saved-prose-row", transcript, transcript]]
+                                and markdown["rawText"] == (transcript.strip() if args.transcript_markdown == "indented-code" else transcript)
+                                and snap["visibleFinal"] == ["Final answer"]
+                                and len([row for row in snap["rows"] if row["role"] == "tool"]) == 1
+                                and (
+                                    markdown["codeBlocks"] == ["print(42)"]
+                                    if args.transcript_markdown == "fenced-code"
+                                    else (markdown["codeBlocks"] == markdown["referenceCodeBlocks"]
+                                          and markdown["renderedHtml"] == markdown["referenceHtml"])
+                                    if args.transcript_markdown == "indented-code"
+                                    else markdown["unordered"] == ["a", "b"] and markdown["ordered"] == ["c"]
+                                )
+                            )
                         page.screenshot(
                             path=str(args.artifact_dir / f"{width}-{phase}.png"),
                             full_page=True,
                         )
                         observations.append(
-                            {"phase": phase, "rows": rows, "scene_thinking": scene_thinking, "snapshot": snap}
+                            {"phase": phase, "rows": rows, "scene_thinking": scene_thinking, "markdown": markdown, "snapshot": snap}
                         )
                         if (
                             [r["rowId"] for r in rows] != expected_row_ids
                             or scene_thinking != [list(thought) for thought in expected_thoughts]
                             or (args.no_tool_reasoning and snap["visibleFinal"] != ["Final answer"])
+                            or not markdown_valid
                         ):
                             failures.append(
-                                {"width": width, "phase": phase, "rows": rows, "scene_thinking": scene_thinking}
+                                {"width": width, "phase": phase, "rows": rows, "scene_thinking": scene_thinking, "markdown": markdown}
                             )
                     (args.artifact_dir / f"{width}.json").write_text(
                         json.dumps(observations, indent=2)
