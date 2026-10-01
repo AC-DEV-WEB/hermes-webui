@@ -272,12 +272,14 @@ def _run_real_smd_media_cases() -> dict:
         "};\n"
         "const punctuation={};\n"
         "for(const mark of ['.',',',';',':','!','?',')']) punctuation[mark]=renderModes([`MEDIA:/tmp/report.xlsx${mark} `]);\n"
+        "const literalRefs={};\n"
+        "for(const ref of ['https://example.com/a.png!','https://example.com/a.png;','https://example.com/a.png:','_','__','*']) literalRefs[ref]=renderModes(['MEDIA:'+ref+' ']);\n"
         "const remoteSuffixPunctuation={query:{},fragment:{}};\n"
         "for(const mark of ['.',',',';',':','!','?']){\n"
         "  remoteSuffixPunctuation.query[mark]=renderModes([`MEDIA:https://example.com/a.png?signature=value${mark} `]);\n"
         "  remoteSuffixPunctuation.fragment[mark]=renderModes([`MEDIA:https://example.com/a.png#section${mark} `]);\n"
         "}\n"
-        "console.log(JSON.stringify({prefixSplits, refSplit, finalExtensionless, pdf, falsePrefix, crossParent, completionBoundaries, callbackBoundaries, callbackSplitSweeps, boundedOverflow, boundaries, punctuation, remoteSuffixPunctuation}));\n"
+        "console.log(JSON.stringify({prefixSplits, refSplit, finalExtensionless, pdf, falsePrefix, crossParent, completionBoundaries, callbackBoundaries, callbackSplitSweeps, boundedOverflow, boundaries, punctuation, remoteSuffixPunctuation, literalRefs}));\n"
     )
     completed = subprocess.run(
         [NODE, "--input-type=module", "-e", script],
@@ -701,6 +703,12 @@ class TestSmdMediaRealParserBehaviour(unittest.TestCase):
                 with self.subTest(case=case_name, mode=mode):
                     self.assertIn(f'data-ref="{ref}"', result["html"])
                     self.assertIn(".", result["text"])
+
+    def test_real_smd_parser_preserves_literal_path_bytes(self):
+        for ref, modes in self.cases["literalRefs"].items():
+            for mode, result in modes.items():
+                with self.subTest(ref=ref, mode=mode):
+                    self.assertIn(f'data-ref="{ref}"', result["html"])
 
     def test_real_smd_parser_preserves_remote_query_and_fragment_punctuation(self):
         for suffix_kind, punctuation_cases in self.cases["remoteSuffixPunctuation"].items():

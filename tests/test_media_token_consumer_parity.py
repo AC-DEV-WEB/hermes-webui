@@ -108,7 +108,7 @@ def test_entity_balanced_local_media_matches_renderer_stream_server_consumers(
     assert len(snapshots[str(image.resolve())]) == 64
 
 
-@pytest.mark.parametrize("punctuation", [".", ";", "!"])
+@pytest.mark.parametrize("punctuation", [".", ",", "?"])
 def test_sentence_punctuation_detaches_from_remote_file_url_while_server_consumers_bypass_remote_refs(
     media_parity_driver, tmp_path, punctuation
 ):
@@ -165,3 +165,42 @@ def test_backtick_filename_matches_renderer_auth_and_snapshot(
     messages = [{"role": "assistant", "content": text}]
     assert annotate_media_snapshots(messages) == 1
     assert str(image.resolve()) in messages[0]["_media_snapshots"]
+
+
+@pytest.mark.parametrize("suffix", ["!", ";", ":", "!!", ".!", ";."])
+def test_remote_path_keeps_meaningful_trailing_bytes(media_parity_driver, suffix):
+    ref = f"https://example.com/a.png{suffix}"
+    assert f'src="{ref}"' in _render(media_parity_driver, f"MEDIA:{ref}")
+
+
+@pytest.mark.parametrize("ref", ["_", "__", "*", "**", "`", "*_", "___"])
+def test_unmatched_delimiter_only_filename_is_a_media_ref(media_parity_driver, ref):
+    from api.helpers import split_media_token_ref
+
+    text = f"MEDIA:{ref}"
+    match = re.search(r"MEDIA:([^\s\)\]]+)", text)
+    assert split_media_token_ref(text, match) == (ref, "")
+    encoded = urllib.parse.quote(ref, safe="").replace("%2A", "*")
+    assert f"api/media?path={encoded}" in _render(media_parity_driver, text)
+
+
+@pytest.mark.parametrize("delimiter", ["*", "**", "***", "_", "__", "___", "`"])
+def test_matching_empty_wrapper_is_not_a_media_ref(media_parity_driver, delimiter):
+    from api.helpers import split_media_token_ref
+
+    text = f"{delimiter}MEDIA:{delimiter}"
+    match = re.search(r"MEDIA:([^\s\)\]]+)", text)
+    assert split_media_token_ref(text, match) is None
+    assert "api/media?path=" not in _render(media_parity_driver, text)
+
+
+@pytest.mark.parametrize("suffix", ["?signature=!", "?signature=?", "#", "#?"])
+def test_remote_query_and_fragment_bytes_stay_intact(media_parity_driver, suffix):
+    ref = f"https://example.com/a.png{suffix}"
+    assert f'src="{ref}"' in _render(media_parity_driver, f"MEDIA:{ref}")
+
+
+@pytest.mark.parametrize("closer", [")", "]"])
+def test_unwrapped_remote_period_requires_sentence_boundary(media_parity_driver, closer):
+    ref = "https://example.com/a.png."
+    assert f'src="{ref}"' in _render(media_parity_driver, f"MEDIA:{ref}{closer}")

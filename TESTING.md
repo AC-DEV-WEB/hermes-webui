@@ -2050,3 +2050,15 @@ Bridged CLI sessions:
 *Regression gate: tests/test_regressions.py*
 *Run: ./scripts/test.sh*
 *Source: <repo>/*
+
+
+### MEDIA boundary regression checks (#6923)
+
+- Render `MEDIA:https://example.com/a.png!`, `a.png;`, and `a.png:`:
+  the requested URL must keep its final byte. A single sentence-ending `.`,
+  `,`, or `?` may detach from an otherwise complete path-only file URL.
+- Query and fragment values retain all punctuation, including punctuation-only values.
+- Render `MEDIA:_`, `MEDIA:__`, and `MEDIA:*`: these are local filenames.
+  Matching empty wrappers such as `**MEDIA:**` must remain prose.
+- Recheck settled and safe/fade streaming output across callback boundaries.
+  Automated coverage: renderer behavior, MEDIA consumer parity, and SMD stream tests.

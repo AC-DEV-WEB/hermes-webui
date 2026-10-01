@@ -2881,6 +2881,7 @@ function _mediaTokenParts(source, matchOffset, rawRef){
       candidate=candidate.slice(0,-trailingPunctuation.length);
       afterDelimiter=trailingPunctuation;
     }
+    if(candidate===delimiter) return null;
     if(candidate.endsWith(delimiter)&&candidate.length>delimiter.length){
       ref=candidate.slice(0,-delimiter.length);
       suffix=delimiter+afterDelimiter;
@@ -2891,22 +2892,23 @@ function _mediaTokenParts(source, matchOffset, rawRef){
   let punctuation=ref.match(/[.,;:!?]+$/);
   if(remoteValue&&punctuation){
     // Query/fragment values may legitimately end in punctuation (including
-    // signed URLs), so never trim them. For path-only URLs, detach sentence
-    // punctuation only when what precedes it already has a conventional file
-    // extension; this keeps arbitrary punctuation-bearing remote paths intact.
+    // signed URLs), so never trim them. Only one sentence-ending '.', ',' or
+    // '?' may detach from a file URL; !, ; and : are meaningful path bytes.
     try{
-      const remoteUrl=new URL(ref);
-      const hasQueryOrFragment=remoteUrl.search!==''||remoteUrl.hash!=='';
+      new URL(ref);
+      const hasQueryOrFragment=ref.includes('#')||ref.slice(0,-punctuation[0].length).includes('?');
       const withoutPunctuation=ref.slice(0,-punctuation[0].length);
+      const afterRef=String(source||'').charAt((Number(matchOffset)||0)+6+String(rawRef||'').length);
+      const sentenceBoundary=afterRef===''||/\s/.test(afterRef);
       const looksLikeFile=/\.[A-Za-z0-9][A-Za-z0-9_-]{0,15}$/.test(withoutPunctuation);
-      if(hasQueryOrFragment||!looksLikeFile) punctuation=null;
+      if(hasQueryOrFragment||!looksLikeFile||!/^[.,?]$/.test(punctuation[0])||(!suffix&&!sentenceBoundary)) punctuation=null;
     }catch(_){ punctuation=null; }
   }
   if(punctuation&&ref.length>punctuation[0].length){
     ref=ref.slice(0,-punctuation[0].length);
     suffix=punctuation[0]+suffix;
   }
-  if(!ref||/^[*_`]+$/.test(ref)) return null;
+  if(!ref) return null;
   return [ref,suffix];
 }
 

@@ -152,6 +152,8 @@ def split_media_token_ref(text: str, match) -> tuple[str, str] | None:
         if trailing_punctuation and candidate[: -len(trailing_punctuation)].endswith(delimiter):
             candidate = candidate[: -len(trailing_punctuation)]
             after_delimiter = trailing_punctuation
+        if candidate == delimiter:
+            return None
         if candidate.endswith(delimiter) and len(candidate) > len(delimiter):
             ref = candidate[: -len(delimiter)]
             suffix = delimiter + after_delimiter + suffix
@@ -161,7 +163,7 @@ def split_media_token_ref(text: str, match) -> tuple[str, str] | None:
     if punctuation and len(ref) > len(punctuation.group(0)):
         ref = ref[: punctuation.start()]
         suffix = punctuation.group(0) + suffix
-    if not ref or _re.fullmatch(r"[*_`]+", ref):
+    if not ref:
         return None
     return ref, suffix
 
