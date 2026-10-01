@@ -42,6 +42,19 @@
   budget now resets only when the window reaches a position it hasn't just visited. (#6654, #6717 by
   @webtecnica)
 
+### Security
+
+- **The update check and workspace git no longer open credential prompts or trust checkout-controlled helpers.**
+  Unattended `git fetch`/`pull` from the update check, and the workspace git panel's operations, now run with a
+  scrubbed environment (`clean_git_env`: inherited `GIT_ASKPASS`, `GIT_SSH`, `GIT_CONFIG_*` and similar are removed)
+  and non-interactive argv, so a remote 401 becomes an error instead of a credential dialog nobody asked for.
+  Credential helpers come only from system and user config; a repository's own config can't add one. Proxy and SSH
+  trust checks follow the destination git actually uses: for a push, every URL from `branch.<name>.pushRemote`,
+  `remote.pushDefault`, the branch remote, then `origin` (including `pushurl` and `pushInsteadOf`), and a push is
+  refused before any side effect if any destination would go through a checkout-controlled proxy. Custom SSH commands
+  are probed with Git's own shell. `scripts/diagnose_update_git.py` prints the resolved destinations for a support
+  report. Thanks @snoyberg. (#7583)
+
 ### Fixed
 
 - **A background-process wake-up is no longer lost when its chat turn fails to start.** When a finished process
