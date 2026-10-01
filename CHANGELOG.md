@@ -54,6 +54,11 @@
   (composer and Settings → Default model) used the routing id as their title, e.g.
   `@anthropic:claude-sonnet-4-6`. They now show the catalog name like every other group, with the raw id still
   on the second line and in the badge. Thanks @webtecnica. (#7796)
+- **Four menus follow the interface language.** The Send key options in Settings, the Insights period picker, the
+  default-voice option in the voice settings and the screen-reader label of the Kanban bulk-status menu had English
+  text hard-coded, so they stayed English on a translated page. They now come from the translation table: Traditional
+  Chinese gets real translations, every other language shows the same English text as before. Thanks @happy5318, and
+  @Yularzhi for the report. (#7650, closes #7582)
 - **A background-process wake-up is no longer lost when its chat turn fails to start.** When a finished process
   wakes its session, the WebUI consumes the pending completion before starting the turn. If preparing or starting that
   turn then failed, the completion was gone with nothing left to retry. It is now saved again and retried once, two
