@@ -96,6 +96,7 @@ from api.process_event_utils import (
     completion_delivery_id,
     release_async_delegation_delivery,
     requeue_async_delegation_event,
+    restore_durable_process_completions,
     schedule_async_delegation_claim_retry,
     stamp_message_source,
 )
@@ -3539,6 +3540,7 @@ def _drain_webui_process_notifications(
     completion_queue = getattr(process_registry, 'completion_queue', None)
     if completion_queue is None:
         return []
+    restore_durable_process_completions(process_registry)
 
     # Computed once per drain (not per event): reads/validates the env cap a
     # single time so an invalid value logs at most one warning per drain.
