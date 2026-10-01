@@ -2987,6 +2987,7 @@ from api.helpers import (
     strip_public_internal_fields,
     _redact_text,
     _CLIENT_DISCONNECT_ERRORS,
+    split_media_token_ref,
 )
 from api.agent_health import build_agent_health_payload
 from api.gateway_chat import gateway_chat_config_status
@@ -21296,7 +21297,6 @@ _MEDIA_TOKEN_RE = re.compile(r"MEDIA:([^\s\)\]]+)")
 #      class) so a filename that legally contains a backtick
 #      (``report`final.png``) is captured in full instead of being
 #      truncated at the first backtick.
-_BACKTICK_MEDIA_RE = re.compile(r"`MEDIA:([^`\s]+)`")
 
 
 def _message_content_text(content) -> str:
@@ -21356,11 +21356,11 @@ def _session_media_token_allows_path(sid: str, target: Path, allowed_mimes: set[
         )
         if "MEDIA:" not in text:
             continue
-        # #7680 re-gate: strip backtick wrappers first so the bare
-        # class below captures the full path even when the filename
-        # itself contains a backtick.
-        text = _BACKTICK_MEDIA_RE.sub(lambda m: f"MEDIA:{m.group(1)}", text)
-        for ref in _MEDIA_TOKEN_RE.findall(text):
+        for match in _MEDIA_TOKEN_RE.finditer(text):
+            parts = split_media_token_ref(text, match)
+            if not parts:
+                continue
+            ref = parts[0]
             if "://" in ref:
                 continue
             try:
