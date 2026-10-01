@@ -44,6 +44,13 @@
 
 ### Fixed
 
+- **`MEDIA:` links work when the model wraps them in Markdown emphasis or quotes.** A reply like
+  `**MEDIA:/path/chart.png**`, `_MEDIA:/path/chart.png_` or `"MEDIA:/path/chart.png".` used to build a link that
+  included the closing `**`, `_` or quote, so the download 404ed. A closing delimiter or quote is now detached only
+  when it exactly matches the opener in front of `MEDIA:` (same characters, same length); everything else stays part of
+  the path, so filenames ending in `_`, `*`, `!` or `.` and URLs ending in `!` keep those bytes. The chat renderer, media
+  authorization, snapshots and public shares all use the same rule. Reported by @ned-kelly. Thanks @pxxD1998.
+  (#6923, closes #6890)
 - **Model aliases route to the provider they name.** A canonical `model_aliases` entry or a provider-qualified
   legacy alias (`sol: openai-codex/gpt-5.6-sol`) now selects that provider, even when a same-named model exists
   on another provider; an unqualified legacy alias keeps the old active-provider-then-fuzzy lookup. Sessions
