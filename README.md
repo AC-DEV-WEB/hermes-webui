@@ -330,10 +330,20 @@ Alias resolution follows the format of the alias:
 
 Aliases that carry their own endpoint or credentials are resolved server-side; the browser only
 receives the model, the provider id, and an opaque route id, never a base URL or key.
-An alias with its own `base_url` follows Hermes's direct-alias credential rules on every backend:
-its declared `api_key`/`key_env` wins; otherwise only a credential resolved for that endpoint's
-own host is sent (for example an OpenRouter key to `openrouter.ai`), never the provider label's
-key to an unrelated host. The alias's provider still selects its wire protocol.
+On the in-process backend, an alias with its own `base_url` follows Hermes's direct-alias
+credential rules: its declared `api_key`/`key_env` wins; otherwise only a credential resolved
+for that endpoint's own host is sent (for example an OpenRouter key to `openrouter.ai`), never
+the provider label's key to an unrelated host. The alias's provider still selects its wire protocol.
+
+Gateway and runner chat support **provider-only aliases** by sending the resolved target model
+and provider, not the alias name: their runtime does not share WebUI's alias registry. Aliases
+that explicitly declare `base_url`, `api_key`, or `key_env` need the in-process backend. External
+chat starts, wakeups, Gateway regeneration, and Gateway goal kickoffs reject them with HTTP 400 and
+`reason: model_alias_requires_in_process_backend` before dispatch; a new Gateway goal is not
+set. Runner regeneration remains unsupported (HTTP 409), regardless of alias selection.
+Ambient credentials resolved for a provider-only alias do not count as alias overrides.
+The session retains its target model and profile-bound opaque route id, including Gateway
+success/error writeback, so a later backend switch can still resolve the original alias.
 
 A session stores that opaque route id, not the endpoint, so an alias that is later deleted or renamed
 leaves the session pointing at a route nothing owns. That send fails closed — on every backend, the
@@ -345,7 +355,7 @@ With `HERMES_WEBUI_RUNTIME_ADAPTER=runner-local`, `/goal <text>` returns HTTP 50
 runner contract does not yet provide atomic goal replacement and kickoff; WebUI
 never substitutes local goal execution. `/goal status`, `pause`, `resume`, and
 `clear` delegate to the runner when supported. Legacy-direct and legacy-journal
-goal kickoff behavior is unchanged. Normal runner chat still supports model aliases.
+goal kickoff behavior is unchanged for supported routes. Normal runner chat supports provider-only model aliases.
 
 Server-initiated turns retain the pre-session stale-Agent-runtime barrier. It
 runs before loading the session; named-profile alias and Gateway routing happen

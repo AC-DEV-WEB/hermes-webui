@@ -24210,6 +24210,21 @@ def _unresolved_model_alias_lane_response(alias_route, model_provider) -> dict |
     }
 
 
+def _external_model_alias_lane_response(alias_route, *, external_owned: bool) -> dict | None:
+    """Reject alias overrides that the external run protocol cannot express."""
+    if not external_owned or alias_route is None:
+        return None
+    if not (alias_route.get("base_url_explicit") or alias_route.get("credential_explicit")):
+        return None
+    return {
+        "error": "This model alias needs the in-process backend because it overrides an endpoint or credential.",
+        "type": "provider_unroutable",
+        "reason": "model_alias_requires_in_process_backend",
+        "hint": "Use the in-process chat backend or select a provider-only model alias.",
+        "_status": 400,
+    }
+
+
 def _start_run(
     s,
     *,
@@ -24245,8 +24260,8 @@ def _start_run(
     returns no adapter is surfaced as ``{"error": str(exc), "_status": 501}``
     so both call sites can map it onto their own HTTP shape.
     """
-    # The external transport may need an alias name, but the durable session must
-    # retain its target model plus profile-bound opaque lane.
+    # Transport routing and durable identity are separate: the session retains
+    # its target model plus profile-bound opaque lane on every backend.
     persisted_model = model
     persisted_model_provider = model_provider
     if gateway_chat_enabled is None:
@@ -24268,9 +24283,8 @@ def _start_run(
         runtime_adapter_runner_enabled,
     )
 
-    # The runner flag is read before the alias decision (the gateway/runner backends
-    # take the alias name rather than a resolved provider), and the adapter gate
-    # below keeps its original shape as the seam tests pin it.
+    # Determine external ownership before translating the alias. The adapter
+    # gate below keeps its original shape as the seam tests pin it.
     runner_enabled = runtime_adapter_runner_enabled()
     alias_refusal = _unresolved_model_alias_lane_response(alias_route, model_provider)
     if alias_refusal is not None:
@@ -24279,14 +24293,17 @@ def _start_run(
             getattr(s, "session_id", None),
         )
         return alias_refusal
-    if alias_route is not None:
-        if gateway_chat_enabled or runner_enabled:
-            # External runtimes own their provider credentials. Their supported
-            # request contract is the model-route alias, not WebUI's opaque lane.
-            model = alias_route["alias"]
-            model_provider = None
-        # The in-process worker owns alias resolution. Keep the opaque lane so it
-        # can compose endpoint and credential authority at the final send seam.
+    alias_refusal = _external_model_alias_lane_response(
+        alias_route, external_owned=gateway_chat_enabled or runner_enabled,
+    )
+    if alias_refusal is not None:
+        return alias_refusal
+    if alias_route is not None and (gateway_chat_enabled or runner_enabled):
+        # External runtimes do not own WebUI's alias registry. Their protocol
+        # carries provider/model, but cannot express alias endpoint/key overrides.
+        model = alias_route["model"]
+        model_provider = str(alias_route["provider"])
+    # The in-process worker keeps the opaque lane and resolves it at the send seam.
 
     if runtime_adapter_enabled() or runtime_adapter_runner_enabled():
         if regeneration is not None and runner_enabled:
@@ -24920,6 +24937,13 @@ def _handle_goal_command(handler, body):
             profile_config=_pp_cfg,
             explicit_model_pick=explicit_model_pick,
         )
+        alias_refusal = _external_model_alias_lane_response(
+            api_config.resolve_model_alias_runtime(model_provider, expected_model=model),
+            external_owned=webui_gateway_chat_enabled(get_config()),
+        )
+        if alias_refusal is not None:
+            status = alias_refusal.pop("_status")
+            return j(handler, {"ok": False, **alias_refusal}, status=status)
         # #5979/#6703 parity with chat-start: record a SIGNATURE of the
         # deliberately-picked model+provider so the streaming resolver can
         # preserve a custom-proxy vendor namespace on a cold catalog. A first
@@ -25294,6 +25318,15 @@ def _handle_chat_start(handler, body, diag=None):
             profile_config=_pp_cfg,
             explicit_model_pick=explicit_model_pick,
         )
+        from api.runtime_adapter import runtime_adapter_runner_enabled
+
+        alias_refusal = _external_model_alias_lane_response(
+            api_config.resolve_model_alias_runtime(model_provider, expected_model=model),
+            external_owned=gateway_chat_enabled or runtime_adapter_runner_enabled(),
+        )
+        if alias_refusal is not None:
+            status = alias_refusal.pop("_status")
+            return j(handler, alias_refusal, status=status)
         # #5979: record a SIGNATURE of the deliberately-picked model+provider so
         # the streaming resolver can preserve a custom-proxy vendor namespace on a
         # cold catalog — but ONLY while the routing context still matches. On a

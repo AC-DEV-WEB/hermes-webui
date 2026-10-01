@@ -331,15 +331,31 @@ def test_gateway_chat_worker_translates_sse_and_persists_session(tmp_path, monke
     subscriber = channel.subscribe()
     STREAMS[stream_id] = channel
 
-    gateway_chat._run_gateway_chat_streaming(
-        s.session_id,
-        "Say hello",
-        "test-model",
-        str(tmp_path),
-        stream_id,
-        [],
-        persisted_model="alias-target-model",
-        persisted_model_provider="model-alias-profile-bound-lane",
+    from api import routes
+
+    monkeypatch.setattr(routes.api_config, "resolve_model_alias_runtime", lambda *_a, **_k: {
+        "alias": "sol", "model": "alias-target-model", "provider": "openai-codex",
+        "api_key": "ambient-provider-key", "base_url": "https://provider.example.test/v1",
+        "base_url_explicit": False, "credential_explicit": False,
+    })
+    monkeypatch.setattr("api.runtime_adapter.runtime_adapter_enabled", lambda: False)
+    monkeypatch.setattr("api.runtime_adapter.runtime_adapter_runner_enabled", lambda: False)
+
+    def start_gateway(session, **kw):
+        gateway_chat._run_gateway_chat_streaming(
+            session.session_id, kw["msg"], kw["model"], kw["workspace"], stream_id,
+            kw["attachments"], model_provider=kw["model_provider"],
+            persisted_model=kw["persisted_model"],
+            persisted_model_provider=kw["persisted_model_provider"],
+        )
+        return {"stream_id": stream_id}
+
+    monkeypatch.setattr(routes, "_start_chat_stream_for_session", start_gateway)
+    routes._start_run(
+        s, msg="Say hello", model="alias-target-model",
+        model_provider="model-alias-profile-bound-lane", workspace=str(tmp_path),
+        attachments=[], normalized_model=False, source="webui", route="/api/chat/start",
+        gateway_chat_enabled=True,
     )
 
     saved = models.get_session(s.session_id)
@@ -359,6 +375,9 @@ def test_gateway_chat_worker_translates_sse_and_persists_session(tmp_path, monke
     assert '"stream": true' in captured["body"]
     payload = json.loads(captured["body"])
     assert payload["reasoning_effort"] == "high"
+    assert payload["model"] == "alias-target-model"
+    assert payload["provider"] == "openai-codex"
+    assert "ambient-provider-key" not in captured["body"]
     # #3324: the gateway path's first system message is now the full WebUI
     # ephemeral system prompt (progress prompt + session/delivery context),
     # NOT the bare _WEBUI_PROGRESS_PROMPT — otherwise the delivery/session

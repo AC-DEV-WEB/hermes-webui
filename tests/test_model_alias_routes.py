@@ -570,30 +570,15 @@ def test_local_alias_launch_kwargs_bind_real_worker_signature():
     )
 
 
-def test_gateway_dispatch_uses_alias_identity_for_gateway_model_route(monkeypatch):
-    from api import routes
-
-    captured = {}
-    session = types.SimpleNamespace(session_id="session-1", profile=None)
-    monkeypatch.setattr(routes.api_config, "resolve_model_alias_runtime", lambda *_args, **_kwargs: _canonical_runtime_route())
-    monkeypatch.setattr("api.runtime_adapter.runtime_adapter_enabled", lambda: False)
-    monkeypatch.setattr("api.runtime_adapter.runtime_adapter_runner_enabled", lambda: False)
-    monkeypatch.setattr(
-        routes,
-        "_start_chat_stream_for_session",
-        lambda _session, **kwargs: captured.update(kwargs) or {"stream_id": "gateway-1", "session_id": "session-1"},
-    )
-
-    routes._start_run(session, gateway_chat_enabled=True, **_start_run_kwargs())
-
-    assert captured["external_runtime_owned"] is True
-    assert captured["model"] == "east"
-    assert captured["model_provider"] is None
-    assert "runtime_api_key" not in captured
-    assert "runtime_base_url" not in captured
+def _provider_only_runtime_route():
+    # Ordinary provider credential resolution can populate a key and URL. Only
+    # explicit alias provenance makes these unsupported external overrides.
+    return {**_canonical_runtime_route(), "provider": "openai-codex",
+            "base_url_explicit": False, "credential_explicit": False}
 
 
-def test_runner_dispatch_uses_alias_identity_in_start_run_contract(monkeypatch):
+@pytest.mark.parametrize("backend", ["gateway", "runner"])
+def test_external_dispatch_resolves_provider_only_alias(monkeypatch, backend):
     from api import routes
 
     captured = []
@@ -604,18 +589,51 @@ def test_runner_dispatch_uses_alias_identity_in_start_run_contract(monkeypatch):
             return {"run_id": "run-1", "stream_id": "stream-1", "session_id": request.session_id}
 
     session = types.SimpleNamespace(session_id="session-1", profile=None)
-    monkeypatch.setattr(routes.api_config, "resolve_model_alias_runtime", lambda *_args, **_kwargs: _canonical_runtime_route())
-    monkeypatch.setenv("HERMES_WEBUI_RUNTIME_ADAPTER", "runner-local")
+    monkeypatch.setattr(routes.api_config, "resolve_model_alias_runtime", lambda *_a, **_k: _provider_only_runtime_route())
     monkeypatch.setattr("api.runtime_adapter.runtime_adapter_enabled", lambda: False)
-    monkeypatch.setattr("api.runtime_adapter.runtime_adapter_runner_enabled", lambda: True)
-    monkeypatch.setattr(routes, "_runtime_runner_client_factory", lambda: RunnerClient())
+    monkeypatch.setattr("api.runtime_adapter.runtime_adapter_runner_enabled", lambda: backend == "runner")
+    if backend == "runner":
+        monkeypatch.setenv("HERMES_WEBUI_RUNTIME_ADAPTER", "runner-local")
+    monkeypatch.setattr(routes, "_runtime_runner_client_factory", RunnerClient)
+    monkeypatch.setattr(routes, "_start_chat_stream_for_session", lambda _s, **kw: captured.append(kw) or {"stream_id": "stream-1"})
 
-    routes._start_run(session, **_start_run_kwargs())
+    routes._start_run(session, gateway_chat_enabled=backend == "gateway", **_start_run_kwargs())
 
     assert len(captured) == 1
-    assert captured[0].model == "east"
-    assert captured[0].provider is None
-    assert "east-secret" not in json.dumps(captured[0].metadata)
+    if backend == "runner":
+        assert captured[0].model == "shared-model"
+        assert captured[0].provider == "openai-codex"
+        assert "east-secret" not in json.dumps(captured[0].metadata)
+    else:
+        assert captured[0]["model"] == "shared-model"
+        assert captured[0]["model_provider"] == "openai-codex"
+        assert captured[0]["persisted_model"] == "shared-model"
+        assert captured[0]["persisted_model_provider"] == "model-alias-canonical"
+        assert "east-secret" not in json.dumps(captured[0])
+
+
+@pytest.mark.parametrize("backend", ["gateway", "runner"])
+@pytest.mark.parametrize("explicit", ["base_url_explicit", "credential_explicit"])
+@pytest.mark.parametrize("regeneration", [None, {"assistant_turn_id": "turn-1"}])
+def test_external_dispatch_refuses_alias_overrides_before_launch(monkeypatch, backend, explicit, regeneration):
+    from api import routes
+
+    route = {**_provider_only_runtime_route(), explicit: True}
+    monkeypatch.setattr(routes.api_config, "resolve_model_alias_runtime", lambda *_a, **_k: route)
+    monkeypatch.setattr("api.runtime_adapter.runtime_adapter_enabled", lambda: False)
+    monkeypatch.setattr("api.runtime_adapter.runtime_adapter_runner_enabled", lambda: backend == "runner")
+    for name in ("_runtime_runner_client_factory", "_start_chat_stream_for_session"):
+        monkeypatch.setattr(routes, name, lambda *_a, **_k: pytest.fail("unsupported alias dispatched"))
+    session = types.SimpleNamespace(session_id="session-1", profile=None, model="shared-model", model_provider="model-alias-canonical")
+    before = vars(session).copy()
+
+    result = routes._start_run(session, gateway_chat_enabled=backend == "gateway", regeneration=regeneration, **_start_run_kwargs())
+
+    assert result["_status"] == 400
+    assert result["reason"] == "model_alias_requires_in_process_backend"
+    assert "in-process backend" in result["error"]
+    assert "east-secret" not in json.dumps(result)
+    assert vars(session) == before
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -626,7 +644,7 @@ def test_runner_dispatch_uses_alias_identity_in_start_run_contract(monkeypatch):
 # snapshot and passes it explicitly; the wakeup path left the argument unset and
 # `_start_chat_stream_for_session` only discovered gateway mode AFTER the
 # alias-lane conversion had been skipped — so a gateway-backed wakeup handed the
-# external runtime the opaque lane instead of the alias name.
+# external runtime the opaque lane instead of the resolved provider.
 # ─────────────────────────────────────────────────────────────────────────────
 
 
@@ -684,26 +702,78 @@ def _capture_legacy_dispatch(monkeypatch, routes_mod):
 
 
 def test_start_session_turn_gateway_wakeup_converts_alias_lane(monkeypatch):
-    """A gateway-backed wakeup routes the alias NAME, not the opaque lane."""
+    """A gateway-backed wakeup sends the resolved provider and model."""
     monkeypatch.setenv("HERMES_WEBUI_CHAT_BACKEND", "gateway")
     routes_mod = _stub_start_session_turn(monkeypatch)
     captured = _capture_legacy_dispatch(monkeypatch, routes_mod)
     monkeypatch.setattr(
         routes_mod.api_config,
         "resolve_model_alias_runtime",
-        lambda *_args, **_kwargs: _canonical_runtime_route(),
+        lambda *_args, **_kwargs: _provider_only_runtime_route(),
     )
 
     resp = routes_mod.start_session_turn("sess-alias-wake", "wakeup")
 
     assert resp["_status"] == 200
-    assert captured["model"] == "east", (
-        "the external runtime's request contract is the alias route, not the "
-        "session's stored model"
+    assert captured["model"] == "shared-model", (
+        "the external runtime needs the resolved model"
     )
-    assert captured["model_provider"] is None
+    assert captured["model_provider"] == "openai-codex"
     assert captured["external_runtime_owned"] is True
     assert "east-secret" not in json.dumps(captured)
+
+
+@pytest.mark.parametrize("backend", ["gateway", "runner"])
+def test_wakeup_refuses_endpoint_alias_without_dispatch(monkeypatch, backend):
+    monkeypatch.setenv("HERMES_WEBUI_CHAT_BACKEND", "gateway" if backend == "gateway" else "legacy")
+    routes = _stub_start_session_turn(monkeypatch)
+    monkeypatch.setattr(routes.api_config, "resolve_model_alias_runtime", lambda *_a, **_k: _canonical_runtime_route())
+    monkeypatch.setattr("api.runtime_adapter.runtime_adapter_runner_enabled", lambda: backend == "runner")
+    for name in ("_start_chat_stream_for_session", "_runtime_runner_client_factory"):
+        monkeypatch.setattr(routes, name, lambda *_a, **_k: pytest.fail("wakeup dispatched unsupported alias"))
+
+    result = routes.start_session_turn("sess-alias-wake", "wakeup")
+
+    assert result["_status"] == 400
+    assert result["reason"] == "model_alias_requires_in_process_backend"
+
+
+@pytest.mark.parametrize("backend,regenerate", [("gateway", False), ("runner", False), ("gateway", True)])
+def test_chat_alias_refusal_precedes_model_and_recovery_mutation(monkeypatch, backend, regenerate):
+    from api import routes, compression_continuation, session_ops
+
+    session = types.SimpleNamespace(
+        session_id="alias-chat", profile=None, model="shared-model",
+        model_provider="model-alias-canonical", workspace="/tmp/ws-test",
+        messages=[], context_messages=[], pending_user_message=None,
+        model_explicit_pick_signature="original-signature",
+    )
+    before = vars(session).copy()
+    monkeypatch.setattr(routes, "_get_or_materialize_session", lambda *_a, **_k: session)
+    monkeypatch.setattr(routes, "_agent_runtime_barrier_response", lambda **_k: None)
+    monkeypatch.setattr(routes, "_session_visible_to_active_profile", lambda *_a: True)
+    monkeypatch.setattr(compression_continuation, "durable_compression_continuation", lambda _s: (False, None))
+    monkeypatch.setattr(routes, "compression_recovery_payload_for_session", lambda _s: {"recommended_action": "continue"})
+    monkeypatch.setattr(routes, "is_generic_continuation_intent", lambda _m: False)
+    monkeypatch.setattr(routes, "_resolve_chat_workspace_with_recovery", lambda *_a: session.workspace)
+    monkeypatch.setattr(routes, "_resolve_chat_workspace_for_regeneration", lambda *_a: session.workspace)
+    monkeypatch.setattr(routes, "_resolve_compatible_session_model_state", lambda *_a, **_k: (session.model, session.model_provider, False))
+    monkeypatch.setattr(routes, "get_config_snapshot", lambda: {})
+    monkeypatch.setattr(routes, "webui_gateway_chat_enabled", lambda _c: backend == "gateway")
+    monkeypatch.setattr("api.runtime_adapter.runtime_adapter_runner_enabled", lambda: backend == "runner")
+    monkeypatch.setattr(routes.api_config, "resolve_model_alias_runtime", lambda *_a, **_k: _canonical_runtime_route())
+    monkeypatch.setattr(routes, "j", lambda _h, payload, status=200: {"status": status, "payload": payload})
+    for name in ("_start_run", "clear_compression_recovery", "_repair_foreign_session_model_provider"):
+        monkeypatch.setattr(routes, name, lambda *_a, **_k: pytest.fail("chat mutated before alias refusal"))
+    monkeypatch.setattr(session_ops, "plan_regeneration", lambda *_a, **_k: types.SimpleNamespace(turn=types.SimpleNamespace(message_text="hello", attachments=[])))
+    body = {"session_id": session.session_id, "explicit_model_pick": True}
+    body.update({"regenerate": True, "regeneration_revision": "revision"} if regenerate else {"message": "hello"})
+
+    result = routes._handle_chat_start(object(), body)
+
+    assert result["status"] == 400
+    assert result["payload"]["reason"] == "model_alias_requires_in_process_backend"
+    assert vars(session) == before
 
 
 def test_start_session_turn_legacy_wakeup_keeps_opaque_alias_lane(monkeypatch):
@@ -737,7 +807,7 @@ def test_start_session_turn_gateway_detection_uses_session_profile_scope(monkeyp
     monkeypatch.setattr(
         routes_mod.api_config,
         "resolve_model_alias_runtime",
-        lambda *_args, **_kwargs: _canonical_runtime_route(),
+        lambda *_args, **_kwargs: _provider_only_runtime_route(),
     )
     entered = []
 
@@ -754,7 +824,7 @@ def test_start_session_turn_gateway_detection_uses_session_profile_scope(monkeyp
         "gateway ownership and the alias lane must be resolved under the owning "
         "session's profile scope on a thread without request profile TLS"
     )
-    assert captured["model"] == "east"
+    assert captured["model"] == "shared-model"
 
 
 def test_start_run_explicit_gateway_flag_skips_ownership_detection(monkeypatch):
@@ -1395,6 +1465,7 @@ def test_live_alias_lane_still_dispatches_after_the_refusal_check(monkeypatch):
     from api import routes
 
     _install_alias_cfg(monkeypatch)
+    monkeypatch.setattr(routes.api_config, "resolve_model_alias_runtime", lambda *_a, **_k: _provider_only_runtime_route())
     captured = {}
     session = types.SimpleNamespace(session_id="session-1", profile=None)
     monkeypatch.setattr("api.runtime_adapter.runtime_adapter_enabled", lambda: False)
@@ -1411,8 +1482,8 @@ def test_live_alias_lane_still_dispatches_after_the_refusal_check(monkeypatch):
     )
 
     assert resp["stream_id"] == "gateway-live"
-    assert captured["model"] == "east"
-    assert captured["model_provider"] is None
+    assert captured["model"] == "shared-model"
+    assert captured["model_provider"] == "openai-codex"
     assert captured["persisted_model"] == "shared-model"
     assert captured["persisted_model_provider"] == _live_lane()
     assert "east-secret" not in json.dumps(captured)
@@ -1507,7 +1578,7 @@ def test_wakeup_alias_routing_follows_the_session_profile_config(monkeypatch, tm
     """A named profile's own config supplies both gateway ownership and the lane."""
     from api.profiles import profile_scope_for_detached_worker
 
-    _install_profile_home(monkeypatch, tmp_path, "work", _ALIAS_PROFILE_CONFIG)
+    _install_profile_home(monkeypatch, tmp_path, "work", _ALIAS_PROFILE_CONFIG.replace("    base_url: https://east.example.test/v1\n    api_key: east-secret\n", ""))
     with _restore_config_cache():
         with profile_scope_for_detached_worker("work", "test alias lane"):
             lane = _live_lane()
@@ -1521,10 +1592,10 @@ def test_wakeup_alias_routing_follows_the_session_profile_config(monkeypatch, tm
     assert captured["external_runtime_owned"] is True, (
         "the named profile's own webui_chat_backend did not select the gateway"
     )
-    assert captured["model"] == "east", (
+    assert captured["model"] == "shared-model", (
         "the named profile's own alias table did not resolve the lane"
     )
-    assert captured["model_provider"] is None
+    assert captured["model_provider"] == "custom"
     assert "east-secret" not in json.dumps(captured)
 
 
@@ -1694,9 +1765,11 @@ def test_goal_kickoff_refuses_unresolved_alias_lane(monkeypatch):
     assert restored, "a refused kickoff must roll the just-set goal back"
 
 
-def test_goal_kickoff_routes_alias_name_to_gateway(monkeypatch):
-    """A live lane reaches a gateway-owned kickoff as the alias NAME."""
+def test_goal_kickoff_routes_resolved_alias_to_gateway(monkeypatch):
+    """A provider-only lane reaches the gateway with resolved routing."""
     _install_alias_cfg(monkeypatch)
+    from api import config
+    monkeypatch.setattr(config, "resolve_model_alias_runtime", lambda *_a, **_k: _provider_only_runtime_route())
     routes, restored = _stub_goal_kickoff(
         monkeypatch, provider=_live_lane(), gateway_owned=True
     )
@@ -1706,11 +1779,74 @@ def test_goal_kickoff_routes_alias_name_to_gateway(monkeypatch):
 
     assert result["status"] == 200
     assert len(started) == 1
-    assert started[0]["model"] == "east"
-    assert started[0]["model_provider"] is None
+    assert started[0]["model"] == "shared-model"
+    assert started[0]["model_provider"] == "openai-codex"
     assert started[0]["external_runtime_owned"] is True
     assert "east-secret" not in json.dumps(started)
     assert restored == []
+
+
+@pytest.mark.parametrize("alias_entry", [
+    {"base_url": "https://alias.example.test/v1"},
+    {"api_key": "synthetic-key"},
+    {"key_env": "UNSET_ALIAS_KEY"},
+])
+@pytest.mark.parametrize("shape", ["canonical", "legacy"])
+def test_gateway_goal_alias_overrides_refused_before_goal_mutation(monkeypatch, alias_entry, shape):
+    from api import config, goals
+
+    entry = {"model": "shared-model", "provider": "custom", **alias_entry}
+    cfg = {"model_aliases": {"east": entry}} if shape == "canonical" else {"model": {"aliases": {"east": entry}}}
+    monkeypatch.setattr(config, "cfg", cfg)
+    monkeypatch.setitem(sys.modules, "hermes_cli.model_switch", types.SimpleNamespace())
+    routes, restored = _stub_goal_kickoff(monkeypatch, provider=_live_lane(), gateway_owned=True)
+    monkeypatch.setattr("api.runtime_adapter.runtime_adapter_runner_enabled", lambda: False)
+    for name in ("goal_command_payload", "goal_state_snapshot", "restore_goal_state"):
+        monkeypatch.setattr(goals, name, lambda *_a, **_k: pytest.fail("goal mutated or snapshotted before refusal"))
+    started = []
+
+    result = _run_goal_kickoff(monkeypatch, routes, started)
+
+    assert result["status"] == 400
+    assert result["payload"]["reason"] == "model_alias_requires_in_process_backend"
+    assert started == []
+    assert restored == []
+
+
+@pytest.mark.parametrize("shape", ["canonical", "legacy_structured", "legacy_qualified"])
+@pytest.mark.parametrize("backend", ["gateway", "runner"])
+def test_external_alias_config_shapes_send_resolved_route(monkeypatch, shape, backend):
+    from api import config, routes
+    from api.runner_client import HttpRunnerClient
+    from io import BytesIO
+
+    entry = {"model": "shared-model", "provider": "openai-codex"}
+    cfg = {"model_aliases": {"east": entry}} if shape == "canonical" else {"model": {"aliases": {"east": entry if shape == "legacy_structured" else "openai-codex/shared-model"}}}
+    monkeypatch.setattr(config, "cfg", cfg)
+    monkeypatch.setitem(sys.modules, "hermes_cli.model_switch", types.SimpleNamespace())
+    captured = []
+
+    class Opener:
+        def open(self, request, timeout):
+            assert request.full_url == "https://runner.example.test/v1/runs"
+            payload = json.loads(request.data)
+            captured.append((payload["model"], payload["provider"]))
+            assert "model-alias-" not in json.dumps(payload)
+            return BytesIO(b'{"run_id":"run-1","stream_id":"stream-1"}')
+
+    monkeypatch.setattr(HttpRunnerClient, "_opener", lambda _self: Opener())
+
+    monkeypatch.setattr("api.runtime_adapter.runtime_adapter_enabled", lambda: False)
+    monkeypatch.setattr("api.runtime_adapter.runtime_adapter_runner_enabled", lambda: backend == "runner")
+    if backend == "runner":
+        monkeypatch.setenv("HERMES_WEBUI_RUNTIME_ADAPTER", "runner-local")
+    monkeypatch.setattr(routes, "_runtime_runner_client_factory", lambda: HttpRunnerClient(base_url="https://runner.example.test"))
+    monkeypatch.setattr(routes, "_start_chat_stream_for_session", lambda _s, **kw: captured.append((kw["model"], kw["model_provider"])) or {"stream_id": "stream-1"})
+    kwargs = {**_start_run_kwargs(), "model_provider": _live_lane()}
+    result = routes._start_run(types.SimpleNamespace(session_id="sid", profile=None), gateway_chat_enabled=backend == "gateway", **kwargs)
+
+    assert result.get("_status", 200) == 200
+    assert captured == [("shared-model", "openai-codex")]
 
 
 def test_goal_kickoff_legacy_keeps_opaque_alias_lane(monkeypatch):
