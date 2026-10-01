@@ -44,6 +44,12 @@
 
 ### Fixed
 
+- **A background-process wake-up is no longer lost when its chat turn fails to start.** When a finished process
+  wakes its session, the WebUI consumes the pending completion before starting the turn. If preparing or starting that
+  turn then failed, the completion was gone with nothing left to retry. It is now saved again and retried once, two
+  seconds later, off the request thread; a failure on that retry keeps the prompt queued instead of scheduling more
+  timers. Only the process-completion path re-arms this way: an async-delegation completion keeps its own durable
+  retry, so one failed start can't deliver the same completion twice. Thanks @happy5318. (#7680)
 - **`MEDIA:` links work when the model wraps them in Markdown emphasis or quotes.** A reply like
   `**MEDIA:/path/chart.png**`, `_MEDIA:/path/chart.png_` or `"MEDIA:/path/chart.png".` used to build a link that
   included the closing `**`, `_` or quote, so the download 404ed. A closing delimiter or quote is now detached only
