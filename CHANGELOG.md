@@ -44,6 +44,14 @@
 
 ### Fixed
 
+- **Foldables, tablets and narrow windows (641-900px) get a usable layout.** In that band the workspace files toggle
+  did nothing (the panel stayed hidden), tapping the toggle while the panel was open could leave it stuck open, and the
+  conversation sidebar squeezed the chat. The files panel now opens as a slide-over from the right (300px, the pattern
+  phones already use) with its own close, the sidebar defaults to the collapsed rail in that band unless you've
+  explicitly opened or collapsed it (that choice is remembered), and the hamburger or "Manage workspaces/profiles"
+  above 640px expands the real sidebar instead of a temporary drawer state that the next resize dropped. A collapsed
+  sidebar and a closed panel are also out of the keyboard Tab order. Phones (640px and below) and desktops above
+  900px keep their layout. Thanks @jatinbharadia, and @lianjun007 for the original #6952 diagnosis. (#7364)
 - **A background-process wake-up is no longer lost when its chat turn fails to start.** When a finished process
   wakes its session, the WebUI consumes the pending completion before starting the turn. If preparing or starting that
   turn then failed, the completion was gone with nothing left to retry. It is now saved again and retried once, two
