@@ -54,6 +54,15 @@
   deferred-save path rather than by an eager checkpoint, its `_source` stamp was never written, so a
   process-wakeup or delegation turn could later render as an ordinary user message. The stamp now
   happens on both paths. Thanks @happy5318. (#7828)
+
+- **Background subagent results that were pending at a restart are delivered again.** Current Hermes
+  Agent no longer reloads undelivered async-delegation completions from its durable ledger when it is
+  imported; it waits for the first consumer to ask. The WebUI reads the completion queue directly
+  rather than through the Agent's own drain, so it never asked, and a subagent result that finished
+  while the WebUI was restarting stayed in the ledger without reaching the parent chat. Both WebUI
+  drain paths now ask the Agent to restore the ledger first. Older Agent builds, which restore on
+  import, are unaffected. Thanks @franksong2702. (#7927)
+
 - **The clarify tool works again with current Hermes Agent.** Hermes Agent changed its clarify
   callback to pass one list of questions and expect the answers back as a structured reply. The WebUI
   still registered the older two-argument callback, so every clarify call in a WebUI chat failed with
