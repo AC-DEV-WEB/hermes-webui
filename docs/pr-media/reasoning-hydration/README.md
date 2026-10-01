@@ -58,3 +58,35 @@ provider behavior is claimed. An initial trial lacked per-row stream ownership
 and passed on baseline, so it is not negative proof. A second trial waited for
 an absent worklog and timed out; the final driver captures missing rows and fails
 on their identities instead of counting a timeout as evidence.
+
+
+## October 1 second review: missing reasoning metadata
+
+No-tool `thinking` content with no reasoning metadata must not allocate a
+settlement slot that discards a distinct saved running event. The synthetic
+persisted fixture contains `Transcript thought` in content parts and saved
+`Distinct saved thought` with event ID `saved-event` and row ID `saved-row`.
+
+The baseline is reviewed head `b2fadb981b90988138d1a34bf55b2bf415ac4471`
+plus upstream `de512304b306211e71da103b5c218b17ef8d4ddc`, merge commit
+`7cf6fc55b7a5244cf25960cd24fd7ab2bd153ee0`. On that baseline, actual server
+load and hard reload lose the saved ID and show `Transcript thought` at both
+1280 and 390 px. The repaired product commit
+`6a3c432fde1a97d5261696bdac04cdbb210d8cf1` preserves the saved row/event IDs,
+`Distinct saved thought`, completed status, and exactly one final answer.
+Both missing and empty metadata cases pass all eight width/load combinations.
+Thinking details were opened with real header clicks before capture.
+
+| Width | Before | After |
+| --- | --- | --- |
+| Desktop 1280 | [Before](no-metadata-before-1280.png) | [After](no-metadata-after-1280.png) |
+| Narrow/mobile 390 | [Before](no-metadata-before-390.png) | [After](no-metadata-after-390.png) |
+
+```sh
+python tests/browser_reasoning_identity_hydration.py --no-tool-reasoning missing-metadata --artifact-dir /tmp/reasoning-no-metadata
+python tests/browser_reasoning_identity_hydration.py --no-tool-reasoning empty-metadata --artifact-dir /tmp/reasoning-empty-metadata
+```
+
+The driver launches isolated temporary state/workspace and an Agent-free stub;
+no real provider or personal session is used. Existing visible-prose/final-answer
+filtering and equal-text/different-ID browser cases also passed.
