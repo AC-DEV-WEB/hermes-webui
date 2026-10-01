@@ -2875,6 +2875,8 @@ function _mediaTokenParts(source, matchOffset, rawRef){
   const trailingPunctuation=ref.match(/[.,;:!?]+$/)?.[0]||'';
   for(const delimiter of ['***','___','**','__','*','_','`']){
     if(!before.endsWith(delimiter)) continue;
+    const openerStart=before.length-delimiter.length;
+    if(openerStart>0&&before.charAt(openerStart-1)===delimiter.charAt(0)) continue;
     let candidate=ref;
     let afterDelimiter='';
     if(trailingPunctuation&&candidate.slice(0,-trailingPunctuation.length).endsWith(delimiter)){
@@ -2883,6 +2885,8 @@ function _mediaTokenParts(source, matchOffset, rawRef){
     }
     if(candidate===delimiter) return null;
     if(candidate.endsWith(delimiter)&&candidate.length>delimiter.length){
+      const closerStart=candidate.length-delimiter.length;
+      if(candidate.charAt(closerStart-1)===delimiter.charAt(0)) continue;
       ref=candidate.slice(0,-delimiter.length);
       const innerPunctuation=ref.match(/[.,;:!?]+$/)?.[0]||'';
       const remoteQueryOrFragment=/^https?:\/\//i.test(ref)

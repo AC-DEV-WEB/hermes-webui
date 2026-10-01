@@ -147,6 +147,9 @@ def split_media_token_ref(text: str, match) -> tuple[str, str] | None:
     for delimiter in ("***", "___", "**", "__", "*", "_", "`"):
         if not before.endswith(delimiter):
             continue
+        opener_start = len(before) - len(delimiter)
+        if opener_start > 0 and before[opener_start - 1] == delimiter[0]:
+            continue
         candidate = ref
         after_delimiter = ""
         if trailing_punctuation and candidate[: -len(trailing_punctuation)].endswith(delimiter):
@@ -155,6 +158,9 @@ def split_media_token_ref(text: str, match) -> tuple[str, str] | None:
         if candidate == delimiter:
             return None
         if candidate.endswith(delimiter) and len(candidate) > len(delimiter):
+            closer_start = len(candidate) - len(delimiter)
+            if candidate[closer_start - 1] == delimiter[0]:
+                continue
             ref = candidate[: -len(delimiter)]
             inner_punctuation = _re.search(r"[.,;:!?]+$", ref)
             remote_query_or_fragment = bool(

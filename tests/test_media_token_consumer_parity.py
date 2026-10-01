@@ -165,9 +165,12 @@ def test_bare_remote_path_preserves_ambiguous_trailing_bytes_while_server_consum
         )
 
 
-@pytest.mark.parametrize("suffix", ["!", ";", ":"])
-def test_bare_local_suffix_bytes_select_the_exact_file_across_consumers(
-    media_parity_driver, tmp_path, monkeypatch, suffix
+@pytest.mark.parametrize(
+    ("opener", "suffix"),
+    [("", "!"), ("", ";"), ("", ":"), ("__", "_"), ("**", "*")],
+)
+def test_ambiguous_local_suffix_bytes_select_the_exact_file_across_consumers(
+    media_parity_driver, tmp_path, monkeypatch, opener, suffix
 ):
     from api import routes, shares
     from api.helpers import split_media_token_ref
@@ -177,13 +180,17 @@ def test_bare_local_suffix_bytes_select_the_exact_file_across_consumers(
     suffixed = tmp_path / f"chart.png{suffix}"
     base.write_bytes(b"blue-base-file")
     suffixed.write_bytes(f"red-suffixed-file-{suffix}".encode())
-    text = f"MEDIA:{suffixed}"
+    text = f"{opener}MEDIA:{suffixed}"
     match = re.search(r"MEDIA:([^\s\)\]]+)", text)
     assert match is not None
     assert split_media_token_ref(text, match) == (str(suffixed), "")
 
     rendered = _render(media_parity_driver, text)
-    encoded = urllib.parse.quote(str(suffixed), safe="").replace("%21", "!")
+    encoded = (
+        urllib.parse.quote(str(suffixed), safe="")
+        .replace("%21", "!")
+        .replace("%2A", "*")
+    )
     assert f"api/media?path={encoded}" in rendered
 
     monkeypatch.setenv("MEDIA_ALLOWED_ROOTS", str(tmp_path))
@@ -208,7 +215,10 @@ def test_bare_local_suffix_bytes_select_the_exact_file_across_consumers(
 
     # A punctuation-bearing path is not an image by extension. Public shares
     # must therefore redact it, never silently embed the distinct base image.
-    assert shares._embed_share_media(text, allowed_roots=(tmp_path,)) == shares._PLACEHOLDER
+    assert (
+        shares._embed_share_media(text, allowed_roots=(tmp_path,))
+        == opener + shares._PLACEHOLDER
+    )
 
 
 @pytest.mark.parametrize("wrapped", [False, True])

@@ -267,6 +267,19 @@ class TestMediaTokenBoundaries:
         assert "path=%2Fworkspace%2Freport.xlsx*" in unmatched
         assert "path=%2Fworkspace%2Freport_name.xlsx" in internal
 
+    @pytest.mark.parametrize(
+        ("markdown", "encoded_suffix"),
+        [
+            ("__MEDIA:/workspace/report.xlsx_", "_"),
+            ("**MEDIA:/workspace/report.xlsx*", "*"),
+        ],
+    )
+    def test_shorter_closer_does_not_match_longer_opener(
+        self, driver_path, markdown, encoded_suffix
+    ):
+        out = _render(driver_path, markdown)
+        assert f"path=%2Fworkspace%2Freport.xlsx{encoded_suffix}" in out
+
     def test_query_and_fragment_remain_part_of_remote_media_ref(self, driver_path):
         ref = "https://example.com/report.png?download=1#preview"
         out = _render(driver_path, f"MEDIA:{ref}")
