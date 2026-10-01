@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Real-server reload proof for stored equal-text reasoning with distinct IDs.
+"""Real-server reload proof for preserved reasoning text and durable IDs.
 
 Seed a disposable sidecar through Session.save(), then exercise the real HTTP
 loader and unmodified browser renderer. No Agent/provider request is performed.
@@ -55,7 +55,9 @@ def main() -> int:
 
     parser = argparse.ArgumentParser()
     parser.add_argument("--artifact-dir", type=Path, required=True)
-    parser.add_argument("--filtered-reasoning", choices=("visible-prose", "final-answer"))
+    scenario = parser.add_mutually_exclusive_group()
+    scenario.add_argument("--filtered-reasoning", choices=("visible-prose", "final-answer"))
+    scenario.add_argument("--no-tool-reasoning", choices=("missing-metadata", "empty-metadata"))
     args = parser.parse_args()
     args.artifact_dir.mkdir(parents=True, exist_ok=True)
     repo = Path(__file__).resolve().parents[1]
@@ -89,6 +91,24 @@ def main() -> int:
             }
         )
         seed_source = SEED
+        expected_row_ids = ["reasoning-row-a", "reasoning-row-b"]
+        expected_thoughts = [
+            ("reasoning-event-a", "Checking the same condition.", "completed"),
+            ("reasoning-event-b", "Checking the same condition.", "completed"),
+        ]
+        if args.no_tool_reasoning:
+            metadata = ', "reasoning_content": ""' if args.no_tool_reasoning == "empty-metadata" else ""
+            seed_source = seed_source.replace(
+                '    {"role": "assistant", "content": "Two distinct reasoning events were recorded.", "_ts": 2},',
+                '    {"role": "assistant", "content": [{"type": "thinking", "thinking": "Transcript thought"}, '
+                '{"type": "text", "text": "Final answer"}]' + metadata + ', "_ts": 2},',
+            ).replace('("a", "b", "a")', '("saved",)').replace(
+                '"reasoning-row-"+name', '"saved-row"'
+            ).replace('"reasoning-event-"+name', '"saved-event"').replace(
+                '"status": "completed"', '"stream_id": "stream-proof", "status": "running"'
+            ).replace('"Checking the same condition."', '"Distinct saved thought"')
+            expected_row_ids = ["saved-row"]
+            expected_thoughts = [("saved-event", "Distinct saved thought", "completed")]
         if args.filtered_reasoning:
             final = "Two distinct reasoning events were recorded."
             reasoning = "Visible progress" if args.filtered_reasoning == "visible-prose" else final
@@ -141,7 +161,7 @@ def main() -> int:
                                 "() => typeof S !== 'undefined' && S.session?.session_id === 'reasoning-proof' && S.messages?.some(m => m._anchor_activity_scene)",
                                 timeout=15000,
                             )
-                        if args.filtered_reasoning:
+                        if args.filtered_reasoning or args.no_tool_reasoning:
                             # Missing Thinking rows are the intended negative
                             # result; capture it rather than timing out waiting
                             # for a worklog that the broken baseline omitted.
@@ -160,23 +180,31 @@ def main() -> int:
                             }""")
                         else:
                             _expand_settled_worklog(page)
+                        if args.no_tool_reasoning:
+                            for header in page.locator('.thinking-card:not(.open) .thinking-card-header').all():
+                                header.click()
                         snap = _activity_snapshot(page)
                         rows = [
                             row for row in snap["rows"] if row["role"] == "thinking"
                         ]
+                        scene_thinking = page.evaluate("""() => S.messages.flatMap(message =>
+                            (message._anchor_activity_scene?.activity_rows || [])
+                                .filter(row => row.role === 'thinking')
+                                .map(row => [row.event_id, row.text, row.status]))""")
                         page.screenshot(
                             path=str(args.artifact_dir / f"{width}-{phase}.png"),
                             full_page=True,
                         )
                         observations.append(
-                            {"phase": phase, "rows": rows, "snapshot": snap}
+                            {"phase": phase, "rows": rows, "scene_thinking": scene_thinking, "snapshot": snap}
                         )
-                        if [r["rowId"] for r in rows] != [
-                            "reasoning-row-a",
-                            "reasoning-row-b",
-                        ]:
+                        if (
+                            [r["rowId"] for r in rows] != expected_row_ids
+                            or scene_thinking != [list(thought) for thought in expected_thoughts]
+                            or (args.no_tool_reasoning and snap["visibleFinal"] != ["Final answer"])
+                        ):
                             failures.append(
-                                {"width": width, "phase": phase, "rows": rows}
+                                {"width": width, "phase": phase, "rows": rows, "scene_thinking": scene_thinking}
                             )
                     (args.artifact_dir / f"{width}.json").write_text(
                         json.dumps(observations, indent=2)

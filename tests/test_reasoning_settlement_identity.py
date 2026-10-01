@@ -564,3 +564,59 @@ def test_visible_content_part_reasoning_with_tools_keeps_its_saved_identity():
     result = _settle([_row("Visible progress", "saved-event", status="running")], messages=messages)
     thinking = [row for row in result["activity_rows"] if row["role"] == "thinking"]
     assert [(row.get("event_id"), row["text"]) for row in thinking] == [("saved-event", "Visible progress")]
+
+
+@pytest.mark.parametrize("metadata", [
+    {},
+    {"reasoning": "", "_reasoning": None, "reasoning_content": "", "thinking": ""},
+    {"reasoning_content": []},
+    {"_reasoning": {}},
+    {"thinking": " \n "},
+    {"reasoning": [{"text": ""}]},
+], ids=["missing", "empty-scalars", "empty-list", "empty-object", "whitespace", "empty-part"])
+@pytest.mark.parametrize("part_type", ["thinking", "reasoning"])
+@pytest.mark.parametrize("tool_source", [None, "tool_calls", "_partial_tool_calls", "external"])
+def test_no_tool_content_without_reasoning_metadata_preserves_distinct_saved_event(
+    metadata, part_type, tool_source
+):
+    assistant = {
+        "role": "assistant",
+        "content": [
+            {"type": part_type, part_type: "Transcript thought"},
+            {"type": "text", "text": "Final answer"},
+        ],
+        **metadata,
+    }
+    call = {"id": "call-1", "name": "read_file", "output": "Transcript output", "assistant_msg_idx": 1}
+    external = [call] if tool_source == "external" else None
+    if tool_source in ("tool_calls", "_partial_tool_calls"):
+        assistant[tool_source] = [call]
+    messages = [{"role": "user", "content": "question"}, assistant]
+    saved = _row("Distinct saved thought", "saved-event", status="running")
+    saved["row_id"] = "saved-row"
+    result = _settle([saved], messages=messages, tool_calls=external)
+    thinking = [row for row in result["activity_rows"] if row["role"] == "thinking"]
+    assert [(row.get("row_id"), row.get("event_id"), row["text"], row["status"]) for row in thinking] == [
+        ("saved-row", "saved-event", "Distinct saved thought", "completed"),
+    ]
+    assert result["final_answer"].strip() == "Final answer"
+    tools = [row for row in result["activity_rows"] if row["role"] == "tool"]
+    assert [row["tool"]["output"] for row in tools] == (["Transcript output"] if tool_source else [])
+    reloaded = _settle(json.loads(json.dumps(result))["activity_rows"], messages=messages, tool_calls=external)
+    assert reloaded["activity_rows"] == result["activity_rows"]
+
+
+def test_intermediate_no_tool_content_does_not_consume_later_metadata_reasoning_slot():
+    messages = [
+        {"role": "user", "content": "question"},
+        {"role": "assistant", "content": [
+            {"type": "thinking", "thinking": "Transcript thought"},
+            {"type": "text", "text": "Visible progress"},
+        ]},
+        {"role": "assistant", "content": "Final answer", "reasoning_content": "Distinct saved thought"},
+    ]
+    result = _settle([_row("Distinct saved thought", "saved-event", status="running")], messages=messages)
+    assert [(row["role"], row.get("event_id"), row["text"].strip()) for row in result["activity_rows"]] == [
+        ("prose", None, "Visible progress"),
+        ("thinking", "saved-event", "Distinct saved thought"),
+    ]

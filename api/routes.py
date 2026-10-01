@@ -5167,7 +5167,8 @@ def _complete_hydrated_anchor_scene(messages, scene, message_index, *, message_o
         metadata_slots = not _anchor_scene_message_has_content_tool_use(message) or not parts
         if not _anchor_scene_message_has_content_tool_use(message):
             metadata_reasoning = _anchor_scene_message_reasoning_text(message)
-            parts = [metadata_reasoning or "".join(parts)]
+            # No-tool content parts do not emit Thinking rows; only metadata owns a slot.
+            parts = [metadata_reasoning]
         elif not parts:
             parts = [_anchor_scene_message_reasoning_text(message)]
         visible_text_key = _anchor_scene_text_key(_anchor_scene_message_text(message))
