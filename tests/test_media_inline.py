@@ -622,7 +622,6 @@ class TestMediaEndpointUnit(unittest.TestCase):
             image.write_bytes(b"\x89PNG\r\n\x1a\n")
             for content in (
                 f"**MEDIA:{image}**",
-                f"**MEDIA:{image}.**",
                 f'"MEDIA:{image}".',
                 f"'MEDIA:{image}'.",
             ):
@@ -636,6 +635,29 @@ class TestMediaEndpointUnit(unittest.TestCase):
                                 "s-media", image, {"image/png"}
                             )
                         )
+
+    def test_session_media_token_does_not_rebind_wrapped_punctuation_to_sibling(self):
+        from api import routes
+
+        with tempfile.TemporaryDirectory() as tmpd:
+            image = pathlib.Path(tmpd) / "card.png"
+            punctuated = pathlib.Path(tmpd) / "card.png."
+            image.write_bytes(b"base")
+            punctuated.write_bytes(b"punctuated")
+            session = SimpleNamespace(
+                messages=[{"role": "assistant", "content": f"**MEDIA:{punctuated}**"}]
+            )
+            with mock.patch.object(routes, "get_session", return_value=session):
+                self.assertFalse(
+                    routes._session_media_token_allows_image_path(
+                        "s-media", image, {"image/png"}
+                    )
+                )
+                self.assertTrue(
+                    routes._session_media_token_allows_path(
+                        "s-media", punctuated, {"application/octet-stream"}
+                    )
+                )
 
     def test_session_media_token_does_not_strip_ambiguous_bare_punctuation(self):
         from api import routes

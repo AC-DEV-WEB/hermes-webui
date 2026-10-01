@@ -2872,7 +2872,11 @@ function _mediaTokenParts(source, matchOffset, rawRef){
     suffix=family.value+afterQuote;
     break;
   }
-  const trailingPunctuation=ref.match(/[.,;:!?]+$/)?.[0]||'';
+  let punctuationStart=ref.length;
+  while(punctuationStart>0&&'.,;:!?'.includes(ref.charAt(punctuationStart-1))){
+    punctuationStart-=1;
+  }
+  const trailingPunctuation=ref.slice(punctuationStart);
   for(const delimiter of ['***','___','**','__','*','_','`']){
     if(!before.endsWith(delimiter)) continue;
     const openerStart=before.length-delimiter.length;
@@ -2888,15 +2892,10 @@ function _mediaTokenParts(source, matchOffset, rawRef){
       const closerStart=candidate.length-delimiter.length;
       if(candidate.charAt(closerStart-1)===delimiter.charAt(0)) continue;
       ref=candidate.slice(0,-delimiter.length);
-      const innerPunctuation=ref.match(/[.,;:!?]+$/)?.[0]||'';
-      const remoteQueryOrFragment=/^https?:\/\//i.test(ref)
-        &&(ref.includes('#')||ref.slice(ref.indexOf('://')+3).includes('?'));
-      if(innerPunctuation&&ref.length>innerPunctuation.length&&!remoteQueryOrFragment){
-        ref=ref.slice(0,-innerPunctuation.length);
-        suffix=innerPunctuation+delimiter+afterDelimiter;
-      }else{
-        suffix=delimiter+afterDelimiter;
-      }
+      // The matching closer proves only its own bytes are outside the
+      // reference. Punctuation immediately before it may be a legal
+      // filename or URL byte and must remain bound to the ref.
+      suffix=delimiter+afterDelimiter;
       break;
     }
   }

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+import time
 import urllib.parse
 from types import SimpleNamespace
 from unittest import mock
@@ -49,42 +50,95 @@ class _MediaHandler:
         return next((value for name, value in self.sent_headers if name == key), "")
 
 
-def test_wrapped_inner_punctuation_matches_renderer_share_auth_and_snapshot(
+def test_wrapped_inner_punctuation_selects_exact_file_across_consumers(
     media_parity_driver, tmp_path, monkeypatch
 ):
     from api import routes, shares
+    from api.helpers import split_media_token_ref
     from api.media_snapshots import annotate_media_snapshots
 
-    image = tmp_path / "ok.png"
-    _write_png(image)
-    text = f"**MEDIA:{image}.**"
-    encoded = urllib.parse.quote(str(image), safe="")
+    base = tmp_path / "chart.png"
+    punctuated = tmp_path / "chart.png!"
+    base.write_bytes(b"blue-base-file")
+    punctuated.write_bytes(b"red-punctuated-file")
+    text = f"**MEDIA:{punctuated}**"
+    encoded = urllib.parse.quote(str(punctuated), safe="").replace("%21", "!")
+
+    match = re.search(r"MEDIA:([^\s\)\]]+)", text)
+    assert match is not None
+    assert split_media_token_ref(text, match) == (str(punctuated), "**")
 
     rendered = _render(media_parity_driver, text)
     assert f"path={encoded}" in rendered
-    assert f"path={encoded}." not in rendered
-    assert ".</strong>" in rendered
+    assert f"path={urllib.parse.quote(str(base), safe='')}\"" not in rendered
 
     shared = shares._embed_share_media(text, allowed_roots=(tmp_path,))
-    assert "data:image/png;base64," in shared
-    assert shares._PLACEHOLDER not in shared
-    assert shared.endswith(".**")
+    assert "data:image/png;base64," not in shared
+    assert shares._PLACEHOLDER in shared
+    assert shared.endswith("**")
 
     session = SimpleNamespace(messages=[{"role": "assistant", "content": text}])
     with mock.patch.object(routes, "get_session", return_value=session):
-        assert routes._session_media_token_allows_image_path(
-            "s-media-parity", image, {"image/png"}
+        assert routes._session_media_token_allows_path(
+            "s-media-parity", punctuated, {"application/octet-stream"}
+        )
+        assert not routes._session_media_token_allows_image_path(
+            "s-media-parity", base, {"image/png"}
         )
 
     monkeypatch.setenv("MEDIA_ALLOWED_ROOTS", str(tmp_path))
+    monkeypatch.setattr("api.auth.is_auth_enabled", lambda: False)
+    handler = _MediaHandler()
+    parsed = SimpleNamespace(
+        path="/api/media", query=f"path={urllib.parse.quote(str(punctuated), safe='')}"
+    )
+    routes._handle_media(handler, parsed)
+    assert handler.status == 200
+    assert bytes(handler.body) == punctuated.read_bytes()
+    assert bytes(handler.body) != base.read_bytes()
+
     monkeypatch.setenv(
         "HERMES_WEBUI_MEDIA_SNAPSHOT_DIR", str(tmp_path / "media_snapshots")
     )
     messages = [{"role": "assistant", "content": text}]
     assert annotate_media_snapshots(messages) == 1
     snapshots = messages[0]["_media_snapshots"]
-    assert str(image.resolve()) in snapshots
-    assert len(snapshots[str(image.resolve())]) == 64
+    assert str(punctuated.resolve()) in snapshots
+    assert str(base.resolve()) not in snapshots
+
+
+def test_malformed_interior_punctuation_has_bounded_renderer_and_route_growth(
+    media_parity_driver, tmp_path
+):
+    from api import routes
+
+    target = tmp_path / "chart.png"
+    _write_png(target)
+
+    def render_elapsed(size):
+        started = time.perf_counter()
+        _render(media_parity_driver, f"MEDIA:/tmp/chart.png{'!' * size}z")
+        return time.perf_counter() - started
+
+    def route_elapsed(size):
+        text = f"MEDIA:{target}{'!' * size}z"
+        session = SimpleNamespace(messages=[{"role": "assistant", "content": text}])
+        started = time.perf_counter()
+        with mock.patch.object(routes, "get_session", return_value=session):
+            assert not routes._session_media_token_allows_image_path(
+                "s-media-linear", target, {"image/png"}
+            )
+        return time.perf_counter() - started
+
+    # An eightfold input increase must stay far below quadratic (64x) growth.
+    # The additive allowance covers process startup and timer jitter on CI.
+    small_render = render_elapsed(4_000)
+    large_render = render_elapsed(32_000)
+    assert large_render <= small_render * 20 + 0.15
+
+    small_route = route_elapsed(2_000)
+    large_route = route_elapsed(16_000)
+    assert large_route <= small_route * 20 + 0.15
 
 
 @pytest.mark.parametrize(

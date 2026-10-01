@@ -304,6 +304,12 @@ class TestMediaTokenBoundaries:
         assert "<strong>" in out
         assert out.endswith(".</p>")
 
+    def test_wrapped_remote_path_preserves_punctuation_before_closer(self, driver_path):
+        ref = "https://example.com/report.png!"
+        out = _render(driver_path, f"**MEDIA:{ref}**")
+        assert f'src="{ref}"' in out
+        assert "<strong>" in out
+
     @pytest.mark.parametrize("quote", ['"', "'"])
     def test_balanced_prose_quotes_stay_outside_local_media_ref(self, driver_path, quote):
         ref = "/workspace/report.xlsx"

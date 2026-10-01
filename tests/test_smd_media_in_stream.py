@@ -225,6 +225,14 @@ def _run_real_smd_media_cases() -> dict:
         "  }\n"
         "  return {settled,partitions};\n"
         "}\n"
+        "function sweepModesWithSettled(source){\n"
+        "  const settled=settledParts(source);\n"
+        "  const partitions=[];\n"
+        "  for(let split=0;split<=source.length;split+=1){\n"
+        "    partitions.push({split,modes:renderModes([source.slice(0,split),source.slice(split)])});\n"
+        "  }\n"
+        "  return {settled,partitions};\n"
+        "}\n"
         "const marker='MEDIA:';\n"
         "const prefixSplits={};\n"
         "for(let i=1;i<marker.length;i++) prefixSplits[i]=renderModes(['\\n\\n'+marker.slice(0,i), marker.slice(i)+'C:/tmp/live.png ']);\n"
@@ -249,6 +257,9 @@ def _run_real_smd_media_cases() -> dict:
         "  querySuffix:sweepDirectWithSettled('MEDIA:https://example.com/a.png?signature=value '),\n"
         "  fragmentSuffix:sweepDirectWithSettled('MEDIA:https://example.com/a.png#section '),\n"
         "  finalKnownExtension:sweepDirectWithSettled('MEDIA:/tmp/a.png'),\n"
+        "};\n"
+        "const realParserSplitSweeps={\n"
+        "  wrappedPunctuation:sweepModesWithSettled('**MEDIA:/tmp/chart.png!** '),\n"
         "};\n"
         "const boundedOverflow=renderModes(['MEDIA:'+('a'.repeat(_MEDIA_TAIL_MAX))]);\n"
         "const boundaries={\n"
@@ -279,7 +290,7 @@ def _run_real_smd_media_cases() -> dict:
         "  remoteSuffixPunctuation.query[mark]=renderModes([`MEDIA:https://example.com/a.png?signature=value${mark} `]);\n"
         "  remoteSuffixPunctuation.fragment[mark]=renderModes([`MEDIA:https://example.com/a.png#section${mark} `]);\n"
         "}\n"
-        "console.log(JSON.stringify({prefixSplits, refSplit, finalExtensionless, pdf, falsePrefix, crossParent, completionBoundaries, callbackBoundaries, callbackSplitSweeps, boundedOverflow, boundaries, punctuation, remoteSuffixPunctuation, literalRefs}));\n"
+        "console.log(JSON.stringify({prefixSplits, refSplit, finalExtensionless, pdf, falsePrefix, crossParent, completionBoundaries, callbackBoundaries, callbackSplitSweeps, realParserSplitSweeps, boundedOverflow, boundaries, punctuation, remoteSuffixPunctuation, literalRefs}));\n"
     )
     completed = subprocess.run(
         [NODE, "--input-type=module", "-e", script],
@@ -647,6 +658,16 @@ class TestSmdMediaRealParserBehaviour(unittest.TestCase):
                 actual = (partition["streamed"]["ref"], partition["streamed"]["remainder"])
                 with self.subTest(case=case_name, split=partition["split"]):
                     self.assertEqual(actual, expected)
+
+    def test_real_smd_safe_and_fade_match_settled_at_every_wrapped_punctuation_split(self):
+        case = self.cases["realParserSplitSweeps"]["wrappedPunctuation"]
+        expected_ref = case["settled"]["ref"]
+        self.assertEqual(expected_ref, "/tmp/chart.png!")
+        for partition in case["partitions"]:
+            for mode, result in partition["modes"].items():
+                with self.subTest(split=partition["split"], mode=mode):
+                    self.assertEqual(result["ref"], expected_ref)
+                    self.assertEqual(result["remainder"], " ")
 
     def test_real_smd_parser_fails_an_oversized_unterminated_tail_to_literal_text(self):
         expected = "MEDIA:" + ("a" * 4096)

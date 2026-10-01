@@ -142,8 +142,10 @@ def split_media_token_ref(text: str, match) -> tuple[str, str] | None:
         ref = ref[:close_at]
         suffix = value + after_quote
         break
-    trailing_match = _re.search(r"[.,;:!?]+$", ref)
-    trailing_punctuation = trailing_match.group(0) if trailing_match else ""
+    punctuation_start = len(ref)
+    while punctuation_start and ref[punctuation_start - 1] in ".,;:!?":
+        punctuation_start -= 1
+    trailing_punctuation = ref[punctuation_start:]
     for delimiter in ("***", "___", "**", "__", "*", "_", "`"):
         if not before.endswith(delimiter):
             continue
@@ -162,20 +164,10 @@ def split_media_token_ref(text: str, match) -> tuple[str, str] | None:
             if candidate[closer_start - 1] == delimiter[0]:
                 continue
             ref = candidate[: -len(delimiter)]
-            inner_punctuation = _re.search(r"[.,;:!?]+$", ref)
-            remote_query_or_fragment = bool(
-                _re.match(r"^https?://", ref, _re.IGNORECASE)
-                and ("#" in ref or "?" in ref.split("://", 1)[1])
-            )
-            if (
-                inner_punctuation
-                and len(ref) > len(inner_punctuation.group(0))
-                and not remote_query_or_fragment
-            ):
-                ref = ref[: inner_punctuation.start()]
-                suffix = inner_punctuation.group(0) + delimiter + after_delimiter + suffix
-            else:
-                suffix = delimiter + after_delimiter + suffix
+            # The matching closer proves only its own bytes are outside the
+            # reference. Punctuation immediately before it may be a legal
+            # filename or URL byte and must remain bound to the ref.
+            suffix = delimiter + after_delimiter + suffix
             break
     # A bare trailing punctuation byte is ambiguous: it may be prose, but it
     # may also be part of a real local filename or remote URL. Only the quote
