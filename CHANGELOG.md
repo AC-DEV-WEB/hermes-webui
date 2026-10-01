@@ -5,6 +5,12 @@
 
 ### Added
 
+- **Per-job "Tasks badge" toggle for scheduled jobs.** A new checkbox in the cron edit form (default on) controls
+  whether that job's completions count toward the Tasks unread badge and new-run marker, so a high-frequency
+  silent job (a sync or heartbeat) no longer keeps the badge lit. It mirrors the existing per-job "Completion
+  toasts" flag: the detail view shows it, the cron APIs (`/api/crons`, `/recent`, `/create`, `/update`) carry
+  `badge_notifications`, and jobs saved without the key keep counting. The toast hint no longer claims the badge
+  still updates when toasts are off. Thanks @BruceAi66. (#7375)
 - **The settings file can live outside the state directory.** `HERMES_WEBUI_SETTINGS_FILE` points one
   instance at its own `settings.json`, while sessions, workspaces and projects stay in the state
   directory. It is read once at startup, so restart after changing it. (#6433 by @futureworld678-create)
@@ -44,6 +50,10 @@
 
 ### Fixed
 
+- **The "Configured" group in the model picker shows model names, not raw ids.** Rows at the top of the picker
+  (composer and Settings → Default model) used the routing id as their title, e.g.
+  `@anthropic:claude-sonnet-4-6`. They now show the catalog name like every other group, with the raw id still
+  on the second line and in the badge. Thanks @webtecnica. (#7796)
 - **A background-process wake-up is no longer lost when its chat turn fails to start.** When a finished process
   wakes its session, the WebUI consumes the pending completion before starting the turn. If preparing or starting that
   turn then failed, the completion was gone with nothing left to retry. It is now saved again and retried once, two
