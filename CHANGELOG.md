@@ -44,6 +44,17 @@
 
 ### Fixed
 
+- **Pinned title language is honoured.** `auxiliary.title_generation.language` now pins the language of
+  WebUI-generated titles, as it already does in Hermes Agent. The title prompt asks for that language,
+  and the drift check that rejects a title in the wrong language (#3293) is retargeted to the pin, so
+  it no longer throws away the title the pin asked for. Both title routes (the auxiliary client and the
+  active agent) honour it. Leaving it unset keeps the old behaviour of matching the user's language.
+  `docs/advanced-chat-setup.md` describes how pins map to scripts. Thanks @djennewe. (#6566)
+- **Turns adopted by a deferred save keep their provenance.** When a turn row was adopted on the
+  deferred-save path rather than by an eager checkpoint, its `_source` stamp was never written, so a
+  process-wakeup or delegation turn could later render as an ordinary user message. The stamp now
+  happens on both paths. Thanks @happy5318. (#7828)
+
 - **Background subagent results that were pending at a restart are delivered again.** Current Hermes
   Agent no longer reloads undelivered async-delegation completions from its durable ledger when it is
   imported; it waits for the first consumer to ask. The WebUI reads the completion queue directly
