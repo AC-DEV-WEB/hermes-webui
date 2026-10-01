@@ -59,6 +59,10 @@
   text hard-coded, so they stayed English on a translated page. They now come from the translation table: Traditional
   Chinese gets real translations, every other language shows the same English text as before. Thanks @happy5318, and
   @Yularzhi for the report. (#7650, closes #7582)
+- **Scheduled-job "Next" and "Last" times match the job's own timezone.** The Tasks detail view converted those
+  timestamps to the browser's timezone, so a job scheduled "daily at 09:00" in America/Sao_Paulo could show 12:00 PM
+  and look misconfigured. Timestamps that carry a UTC offset are now shown in that offset, so the clock time matches
+  the schedule; a timestamp without an offset is shown as before. Thanks @happy5318. (#7740, fixes #7140)
 - **A background-process wake-up is no longer lost when its chat turn fails to start.** When a finished process
   wakes its session, the WebUI consumes the pending completion before starting the turn. If preparing or starting that
   turn then failed, the completion was gone with nothing left to retry. It is now saved again and retried once, two
