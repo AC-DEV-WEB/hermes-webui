@@ -19,6 +19,7 @@ any double-counting risk.
 import logging
 import ntpath
 import os
+import threading
 from pathlib import Path
 from typing import Optional
 
@@ -162,7 +163,8 @@ def sync_session_cwd(session_id: str, workspace, profile: Optional[str] = None, 
     empty ``cwd`` and clients that group sessions by working directory
     (Hermes Desktop) filed them under "Home" instead of their workspace.
 
-    Only an EXISTING row is updated; this never creates one, so sessions that
+    Only an EXISTING row whose ``source`` is ``webui`` is updated; this never
+    creates one, so sessions that
     never sent a message stay out of state.db exactly as before. A row that
     already records the same ``cwd`` is left untouched, so the per-row Git
     metadata generation is only bumped on a real workspace change (where the
@@ -189,6 +191,10 @@ def sync_session_cwd(session_id: str, workspace, profile: Optional[str] = None, 
         row = db.get_session(session_id)
         if not row:
             return False
+        # Only rows the WebUI owns: an imported or foreign session (CLI, TUI,
+        # Desktop, gateway) keeps its own working directory and git metadata.
+        if row.get("source") != "webui":
+            return False
         if _normalize_session_cwd(row.get("cwd")) == cwd:
             return False
         return db.update_session_cwd(session_id, cwd) is not None
@@ -201,6 +207,53 @@ def sync_session_cwd(session_id: str, workspace, profile: Optional[str] = None, 
                 db.close()
             except Exception:
                 logger.debug("Failed to close state.db")
+
+
+_CWD_SYNC_LOCK = threading.Lock()
+_CWD_SYNC_THREADS: set = set()
+_CWD_SYNC_THREADS_LOCK = threading.Lock()
+
+
+def sync_session_cwd_background(resolve) -> threading.Thread:
+    """Run :func:`sync_session_cwd` off the caller's thread.
+
+    The cwd mirror is optional metadata, but ``SessionDB`` writes retry for up
+    to ~20 s under contention. Stream cleanup and the workspace-update response
+    must not wait for that, so the write runs on a daemon thread.
+
+    ``resolve`` returns ``(session_id, workspace, profile)`` or ``None`` and is
+    called *when the write runs*, under a module lock that serialises these
+    writes. Because every write re-reads the current workspace, two overlapping
+    syncs converge on the latest value whatever order they run in. Failures are
+    logged at debug level and never reach the caller.
+    """
+    def _worker():
+        try:
+            with _CWD_SYNC_LOCK:
+                target = resolve()
+                if target:
+                    session_id, workspace, profile = target
+                    sync_session_cwd(session_id, workspace, profile=profile)
+        except Exception:
+            logger.debug("Background session cwd sync failed", exc_info=True)
+        finally:
+            with _CWD_SYNC_THREADS_LOCK:
+                _CWD_SYNC_THREADS.discard(threading.current_thread())
+
+    thread = threading.Thread(target=_worker, name="webui-cwd-sync", daemon=True)
+    with _CWD_SYNC_THREADS_LOCK:
+        _CWD_SYNC_THREADS.add(thread)
+    thread.start()
+    return thread
+
+
+def drain_cwd_syncs(timeout: float = 5.0) -> bool:
+    """Wait for in-flight background cwd syncs (tests, orderly shutdown)."""
+    with _CWD_SYNC_THREADS_LOCK:
+        pending = list(_CWD_SYNC_THREADS)
+    for thread in pending:
+        thread.join(timeout)
+    return not any(thread.is_alive() for thread in pending)
 
 
 def sync_session_usage(session_id: str, input_tokens: int=0, output_tokens: int=0,

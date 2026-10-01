@@ -153,6 +153,72 @@ def test_blank_input_missing_db_and_db_errors_are_swallowed(monkeypatch):
     assert state_sync.sync_session_cwd("sid", "/x", db=broken) is False
 
 
+# ── only rows the WebUI owns ────────────────────────────────────────────────
+
+
+@pytest.mark.parametrize("source", ["cli", "tui", "desktop", "telegram", "cron", "subagent"])
+def test_foreign_source_rows_are_never_touched(fake_db, source):
+    """Opening an imported session must not overwrite its own cwd / git identity."""
+    fake_db.create_session("foreign", source=source)
+    fake_db.update_session_cwd("foreign", "/projects/own", git_branch="main", git_repo_root="/projects/own")
+    generation = fake_db.rows["foreign"]["git_metadata_generation"]
+    assert state_sync.sync_session_cwd("foreign", "/home/u/workspace") is False
+    row = fake_db.rows["foreign"]
+    assert (row["cwd"], row["git_branch"], row["git_repo_root"]) == ("/projects/own", "main", "/projects/own")
+    assert row["git_metadata_generation"] == generation
+
+
+# ── never make the caller wait on a busy state.db ───────────────────────────
+
+
+def test_background_sync_returns_immediately_while_the_db_is_busy(monkeypatch):
+    """SessionDB retries writes for ~20 s under contention. Stream cleanup and
+    the workspace-update response must not wait for that."""
+    import threading
+    import time
+
+    gate = threading.Event()
+
+    class _BusyDB(_FakeSessionDB):
+        def update_session_cwd(self, *a, **k):
+            gate.wait(10)  # a writer holds the lock
+            return super().update_session_cwd(*a, **k)
+
+    db = _BusyDB()
+    db.create_session("busy")
+    monkeypatch.setattr(state_sync, "_get_state_db", lambda profile=None: db)
+
+    started = time.monotonic()
+    state_sync.sync_session_cwd_background(lambda: ("busy", "/home/u/workspace", None))
+    assert time.monotonic() - started < 1.0, "the caller waited for the busy database"
+    assert db.rows["busy"]["cwd"] is None  # not written yet
+    gate.set()
+    assert state_sync.drain_cwd_syncs()
+    assert db.rows["busy"]["cwd"] == "/home/u/workspace"
+
+
+def test_background_syncs_converge_on_the_latest_workspace(fake_db):
+    """Each write re-reads the current workspace, so overlapping syncs end on
+    the newest value whatever order they run in."""
+    fake_db.create_session("race")
+    current = {"ws": "/home/u/a"}
+    state_sync.sync_session_cwd_background(lambda: ("race", current["ws"], None))
+    current["ws"] = "/home/u/b"
+    state_sync.sync_session_cwd_background(lambda: ("race", current["ws"], None))
+    assert state_sync.drain_cwd_syncs()
+    assert fake_db.rows["race"]["cwd"] == "/home/u/b"
+
+
+def test_background_sync_swallows_resolver_and_db_errors(fake_db):
+    def _boom():
+        raise RuntimeError("session store unavailable")
+
+    state_sync.sync_session_cwd_background(_boom)
+    state_sync.sync_session_cwd_background(lambda: None)
+    assert state_sync.drain_cwd_syncs()
+    assert fake_db.rows == {}
+
+
 # ── streaming worker: every exit path ───────────────────────────────────────
 
 
@@ -272,14 +338,17 @@ def _run_stream(db, workspace, outcome, sid, *, current_session=None, during_tur
             session_id=sid, msg_text="hi", model="test-model",
             workspace=str(workspace), stream_id=stream_id,
         )
+        # The write runs in the background and resolves the current session
+        # when it executes, so wait for it while get_session() is still patched.
+        assert state_sync.drain_cwd_syncs(), "background cwd sync did not finish"
 
 
 @pytest.mark.parametrize("outcome", ["success", "error", "raise", "cancel"])
 def test_streaming_turn_records_workspace_on_every_exit(stream_env, monkeypatch, outcome):
     """The row the Agent created must carry the workspace however the turn ends."""
     db = _FakeSessionDB()
-    # The worker must use the Agent's own (profile-bound) handle, not open one.
-    monkeypatch.setattr(state_sync, "_get_state_db", lambda profile=None: None)
+    # The background write opens the session's profile DB (#2762).
+    monkeypatch.setattr(state_sync, "_get_state_db", lambda profile=None: db)
     sid = f"stream-{outcome}"
     _run_stream(db, stream_env, outcome, sid)
     assert sid in db.rows, "the Agent double should have created the row"
@@ -292,7 +361,7 @@ def test_stale_worker_does_not_overwrite_a_newer_workspace(stream_env, tmp_path,
     workspace B. The unwinding worker still holds workspace A and must not
     put ``sessions.cwd`` back to A."""
     db = _FakeSessionDB()
-    monkeypatch.setattr(state_sync, "_get_state_db", lambda profile=None: None)
+    monkeypatch.setattr(state_sync, "_get_state_db", lambda profile=None: db)
     sid = f"stale-{outcome}"
     workspace_b = tmp_path / "ws" / "other"
     workspace_b.mkdir(parents=True)
@@ -313,7 +382,7 @@ def test_unresolvable_current_session_skips_the_write(stream_env, monkeypatch):
     """Fail closed: no current session object, no state.db write from the
     worker-held snapshot."""
     db = _FakeSessionDB()
-    monkeypatch.setattr(state_sync, "_get_state_db", lambda profile=None: None)
+    monkeypatch.setattr(state_sync, "_get_state_db", lambda profile=None: db)
     _run_stream(db, stream_env, "success", "gone",
                 current_session=RuntimeError("session store unavailable"))
     assert db.rows["gone"]["cwd"] is None
@@ -346,6 +415,7 @@ def test_sync_chat_records_workspace_even_when_the_turn_raises(tmp_path, monkeyp
 
     with pytest.raises(RuntimeError, match="agent unavailable"):
         routes._handle_chat_sync(object(), {"session_id": "sync-sid", "message": "hi"})
+    assert state_sync.drain_cwd_syncs()
     assert fake_db.rows["sync-sid"]["cwd"] == str(workspace)
 
 
@@ -376,6 +446,7 @@ def test_workspace_update_moves_existing_row(tmp_path, monkeypatch, fake_db):
         client_address = ("127.0.0.1", 0)
 
     routes.handle_post(_Handler(), urlparse("/api/session/update"))
+    assert state_sync.drain_cwd_syncs()
     assert "bad" not in captured, captured.get("bad")
     assert fake_db.rows["upd-sid"]["cwd"] == str(new_ws)
 
@@ -395,5 +466,11 @@ def test_real_session_db_row_gets_workspace(tmp_path):
         assert state_sync.sync_session_cwd("real", "/home/u/workspace", db=db) is False
         assert state_sync.sync_session_cwd("missing", "/home/u/workspace", db=db) is False
         assert db.get_session("missing") is None
+
+        db.create_session(session_id="cli-row", source="cli", model="m", cwd="/projects/cli")
+        db.update_session_cwd("cli-row", "/projects/cli", git_branch="main", git_repo_root="/projects/cli")
+        assert state_sync.sync_session_cwd("cli-row", "/projects/webui", db=db) is False
+        cli = db.get_session("cli-row")
+        assert (cli["cwd"], cli["git_repo_root"]) == ("/projects/cli", "/projects/cli")
     finally:
         db.close()

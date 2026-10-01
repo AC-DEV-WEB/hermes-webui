@@ -15159,31 +15159,30 @@ def _run_agent_streaming(
         # Mirror the workspace into state.db sessions.cwd on EVERY exit (success,
         # provider error, exception, cancel): the Agent creates the row during
         # run_conversation() but only stamps cwd for CLI sources, so Desktop
-        # filed WebUI sessions under "Home". Reuse the Agent's own SessionDB —
-        # it is bound to this session's profile (#2762). Never creates a row.
+        # filed WebUI sessions under "Home". Never creates a row, and only
+        # touches rows whose source is "webui".
         # The worker-held ``s`` may be a detached snapshot (cancel admitted a
         # successor, or /api/session/update moved the workspace while this
-        # worker unwound), so publish the CURRENT session's workspace, resolved
-        # under the canonical lock, and fail closed when it cannot be resolved
-        # (same rule as _resolve_current_session_for_write's other callers).
+        # worker unwound), so the CURRENT session is resolved under the
+        # canonical lock when the write runs, failing closed when it cannot be
+        # resolved. The write itself runs in the background: SessionDB retries
+        # for up to ~20 s on a busy state.db and must not delay cleanup (the
+        # run stays registered until then and the next send would get a 409).
         if s is not None and agent is not None:
             try:
-                from api.state_sync import sync_session_cwd
+                from api.state_sync import sync_session_cwd_background
                 _cwd_lock = _agent_lock if _agent_lock is not None else contextlib.nullcontext()
-                with _cwd_lock:
-                    _cwd_session = _resolve_current_session_for_write(s)
-                    if _cwd_session is not None:
-                        _cwd_db = getattr(agent, '_session_db', None)
-                        if _cwd_db is not None and getattr(_cwd_db, '_conn', True) is None:
-                            _cwd_db = None
-                        sync_session_cwd(
-                            _cwd_session.session_id,
-                            _cwd_session.workspace,
-                            profile=getattr(_cwd_session, 'profile', None),
-                            db=_cwd_db,
-                        )
+
+                def _resolve_cwd_target(_s=s, _lock=_cwd_lock):
+                    with _lock:
+                        _cur = _resolve_current_session_for_write(_s)
+                        if _cur is None:
+                            return None
+                        return (_cur.session_id, _cur.workspace, getattr(_cur, 'profile', None))
+
+                sync_session_cwd_background(_resolve_cwd_target)
             except Exception:
-                logger.debug("Failed to sync session cwd to state.db", exc_info=True)
+                logger.debug("Failed to schedule session cwd sync", exc_info=True)
         _clear_thread_env()  # TD1: always clear thread-local context
         if _streaming_cron_profile_home_token is not None:
             _STREAMING_CRON_PROFILE_HOME.reset(_streaming_cron_profile_home_token)
