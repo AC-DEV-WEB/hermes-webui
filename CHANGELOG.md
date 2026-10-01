@@ -5,6 +5,12 @@
 
 ### Added
 
+- **Per-job "Tasks badge" toggle for scheduled jobs.** A new checkbox in the cron edit form (default on) controls
+  whether that job's completions count toward the Tasks unread badge and new-run marker, so a high-frequency
+  silent job (a sync or heartbeat) no longer keeps the badge lit. It mirrors the existing per-job "Completion
+  toasts" flag: the detail view shows it, the cron APIs (`/api/crons`, `/recent`, `/create`, `/update`) carry
+  `badge_notifications`, and jobs saved without the key keep counting. The toast hint no longer claims the badge
+  still updates when toasts are off. Thanks @BruceAi66. (#7375)
 - **The settings file can live outside the state directory.** `HERMES_WEBUI_SETTINGS_FILE` points one
   instance at its own `settings.json`, while sessions, workspaces and projects stay in the state
   directory. It is read once at startup, so restart after changing it. (#6433 by @futureworld678-create)
@@ -44,6 +50,19 @@
 
 ### Fixed
 
+- **The "Configured" group in the model picker shows model names, not raw ids.** Rows at the top of the picker
+  (composer and Settings → Default model) used the routing id as their title, e.g.
+  `@anthropic:claude-sonnet-4-6`. They now show the catalog name like every other group, with the raw id still
+  on the second line and in the badge. Thanks @webtecnica. (#7796)
+- **Four menus follow the interface language.** The Send key options in Settings, the Insights period picker, the
+  default-voice option in the voice settings and the screen-reader label of the Kanban bulk-status menu had English
+  text hard-coded, so they stayed English on a translated page. They now come from the translation table: Traditional
+  Chinese gets real translations, every other language shows the same English text as before. Thanks @happy5318, and
+  @Yularzhi for the report. (#7650, closes #7582)
+- **Scheduled-job "Next" and "Last" times match the job's own timezone.** The Tasks detail view converted those
+  timestamps to the browser's timezone, so a job scheduled "daily at 09:00" in America/Sao_Paulo could show 12:00 PM
+  and look misconfigured. Timestamps that carry a UTC offset are now shown in that offset, so the clock time matches
+  the schedule; a timestamp without an offset is shown as before. Thanks @happy5318. (#7740, fixes #7140)
 - **A background-process wake-up is no longer lost when its chat turn fails to start.** When a finished process
   wakes its session, the WebUI consumes the pending completion before starting the turn. If preparing or starting that
   turn then failed, the completion was gone with nothing left to retry. It is now saved again and retried once, two
