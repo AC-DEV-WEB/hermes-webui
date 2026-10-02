@@ -74,6 +74,12 @@
 
 ### Fixed
 
+- **Hermes Desktop files WebUI sessions under their workspace instead of "Home".** The Agent creates the
+  `state.db` row for a WebUI turn but only stamps `cwd` for CLI sources. WebUI now writes the session's
+  workspace into `sessions.cwd` through the Agent's `update_session_cwd` when the workspace changes and at
+  the end of every turn. It only updates an existing row whose source is `webui` (never a CLI-owned row),
+  runs off the request path so a busy `state.db` never delays a turn, and is skipped on Agents without
+  `update_session_cwd`. It does not depend on the `sync_to_insights` setting. (#7918 by @AndreaB321)
 - **Foldables, tablets and narrow windows (641-900px) get a usable layout.** In that band the workspace files toggle
   did nothing (the panel stayed hidden), tapping the toggle while the panel was open could leave it stuck open, and the
   conversation sidebar squeezed the chat. The files panel now opens as a slide-over from the right (300px, the pattern
