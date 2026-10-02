@@ -219,6 +219,44 @@ def test_background_sync_swallows_resolver_and_db_errors(fake_db):
     assert fake_db.rows == {}
 
 
+def test_trailing_whitespace_is_part_of_the_workspace_path(fake_db, tmp_path):
+    """``/x/acme `` (trailing space) is a different directory from ``/x/acme``."""
+    plain, spaced = tmp_path / "acme", tmp_path / "acme "
+    plain.mkdir()
+    spaced.mkdir()
+    assert state_sync._normalize_session_cwd(str(spaced)) == str(spaced)
+    assert state_sync._normalize_session_cwd(f"  {plain}/ ") == f"  {plain}/ ".rstrip("/\\")
+    assert state_sync._normalize_session_cwd("   ") == ""  # blank is still blank
+    fake_db.create_session("ws-space", cwd=str(plain))
+    assert state_sync.sync_session_cwd("ws-space", str(spaced)) is True
+    assert fake_db.rows["ws-space"]["cwd"] == str(spaced)
+    assert fake_db.rows["ws-space"]["cwd"] != str(plain)
+    assert state_sync.sync_session_cwd("ws-space", str(spaced)) is False  # idempotent
+
+
+def test_profile_none_session_reads_the_root_state_db(monkeypatch):
+    """A legacy ``profile=None`` session lives in the root home. The background
+    thread has no request profile, so ``None`` must not fall back to the
+    process-active (named) profile's state.db."""
+    root_db, active_db = _FakeSessionDB(), _FakeSessionDB()
+    root_db.create_session("legacy")
+    active_db.create_session("legacy", cwd="/home/u/active")  # same id, other profile
+    seen = []
+
+    def _get_state_db(profile=None):
+        seen.append(profile)
+        # ``None`` resolves to the process-active named profile, as in production.
+        return root_db if profile == "default" else active_db
+
+    monkeypatch.setattr(state_sync, "_get_state_db", _get_state_db)
+    state_sync.sync_session_cwd_background(lambda: ("legacy", "/home/u/workspace", None))
+    assert state_sync.drain_cwd_syncs()
+    assert seen == ["default"]
+    assert root_db.rows["legacy"]["cwd"] == "/home/u/workspace"
+    assert active_db.rows["legacy"]["cwd"] == "/home/u/active"
+    assert active_db.cwd_writes == 0
+
+
 # ── streaming worker: every exit path ───────────────────────────────────────
 
 
@@ -434,6 +472,7 @@ def test_workspace_update_moves_existing_row(tmp_path, monkeypatch, fake_db):
     monkeypatch.setattr(routes, "_check_csrf", lambda _h: True, raising=False)
     monkeypatch.setattr(routes, "read_body", lambda _h: {"session_id": "upd-sid", "workspace": str(new_ws)})
     monkeypatch.setattr(routes, "_get_or_materialize_session", lambda _sid: session)
+    monkeypatch.setattr(routes, "get_session", lambda _sid, **_k: session)
     monkeypatch.setattr(routes, "resolve_trusted_workspace", lambda ws, **_k: ws)
     monkeypatch.setattr(routes, "set_last_workspace", lambda *a, **k: None)
     monkeypatch.setattr(routes, "j", lambda _h, obj, *a, **k: captured.setdefault("ok", obj) or True)
@@ -449,6 +488,70 @@ def test_workspace_update_moves_existing_row(tmp_path, monkeypatch, fake_db):
     assert state_sync.drain_cwd_syncs()
     assert "bad" not in captured, captured.get("bad")
     assert fake_db.rows["upd-sid"]["cwd"] == str(new_ws)
+
+
+def test_delayed_workspace_syncs_resolve_the_current_session_not_a_captured_one(
+    tmp_path, monkeypatch, fake_db
+):
+    """Two workspace changes with the cached ``Session`` object replaced between
+    them; the callbacks then run in reverse order. Each must resolve the CURRENT
+    session by id when it runs, so the row ends on the latest workspace."""
+    import api.routes as routes
+
+    ws_a, ws_b, ws_c = (tmp_path / n for n in "abc")
+    for d in (ws_a, ws_b, ws_c):
+        d.mkdir()
+
+    def _session(workspace):
+        s = Session(session_id="swap-sid", title="t")
+        s.workspace = str(workspace)
+        s.save = lambda *a, **k: None
+        return s
+
+    store = {"swap-sid": _session(ws_a)}  # stands in for SESSIONS
+    fake_db.create_session("swap-sid", source="webui", cwd=str(ws_a))
+    resolvers = []
+    body = {}
+    monkeypatch.setattr(state_sync, "sync_session_cwd_background", resolvers.append)
+    monkeypatch.setattr(routes, "_check_csrf", lambda _h: True, raising=False)
+    monkeypatch.setattr(routes, "read_body", lambda _h: dict(body))
+    monkeypatch.setattr(routes, "_get_or_materialize_session", lambda sid: store[sid])
+    monkeypatch.setattr(routes, "get_session", lambda sid, **_k: store[sid])
+    monkeypatch.setattr(routes, "resolve_trusted_workspace", lambda ws, **_k: ws)
+    monkeypatch.setattr(routes, "set_last_workspace", lambda *a, **k: None)
+    monkeypatch.setattr(routes, "j", lambda _h, obj, *a, **k: True)
+    monkeypatch.setattr(routes, "bad", lambda _h, msg, code=400: pytest.fail(msg))
+
+    class _Handler:
+        headers = {"Content-Type": "application/json"}
+        command = "POST"
+        path = "/api/session/update"
+        client_address = ("127.0.0.1", 0)
+
+    def _update(workspace):
+        body.update({"session_id": "swap-sid", "workspace": str(workspace)})
+        routes.handle_post(_Handler(), urlparse("/api/session/update"))
+
+    _update(ws_b)                       # A -> B, schedules callback 1
+    store["swap-sid"] = _session(ws_b)  # object replaced (eviction / disk reload)
+    _update(ws_c)                       # B -> C, schedules callback 2
+    assert len(resolvers) == 2
+
+    for resolve in reversed(resolvers):  # callback 2 first, then the older one
+        target = resolve()
+        assert target == ("swap-sid", str(ws_c), None)
+        state_sync.sync_session_cwd(*target)
+    assert fake_db.rows["swap-sid"]["cwd"] == str(ws_c)
+
+
+def test_delayed_workspace_sync_skips_a_session_that_no_longer_resolves(monkeypatch):
+    import api.routes as routes
+
+    def _gone(_sid, **_k):
+        raise KeyError(_sid)
+
+    monkeypatch.setattr(routes, "get_session", _gone)
+    assert routes._current_cwd_sync_target("deleted-sid") is None
 
 
 # ── against the real Agent SessionDB when available ─────────────────────────

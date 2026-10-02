@@ -16862,7 +16862,7 @@ def handle_post(handler, parsed) -> bool:
             try:
                 from api.state_sync import sync_session_cwd_background
                 sync_session_cwd_background(
-                    lambda: (s.session_id, s.workspace, getattr(s, "profile", None))
+                    lambda _sid=s.session_id: _current_cwd_sync_target(_sid)
                 )
             except Exception:
                 logger.debug("Failed to schedule session cwd sync after workspace update")
@@ -26439,6 +26439,24 @@ def _normalize_chat_attachments(raw_attachments):
     return normalized
 
 
+def _current_cwd_sync_target(sid):
+    """Resolve ``(session_id, workspace, profile)`` for a delayed cwd sync.
+
+    Runs when the background write executes, not when it is scheduled. A
+    ``Session`` captured at schedule time can be replaced in ``SESSIONS`` (LRU
+    eviction, disk-ahead reload, metadata-stub upgrade), so the current object
+    is looked up by id under the per-session agent lock, the same way the
+    streaming teardown does. Returns ``None`` (skip the write) when the session
+    no longer resolves.
+    """
+    with _get_session_agent_lock(sid):
+        try:
+            cur = get_session(sid)
+        except KeyError:
+            return None
+        return (cur.session_id, cur.workspace, getattr(cur, "profile", None))
+
+
 def _handle_chat_sync(handler, body):
     """Fallback synchronous chat endpoint (POST /api/chat). Not used by frontend."""
     stale_response = _agent_runtime_barrier_response(runner_local_owned=False)
@@ -26613,7 +26631,7 @@ def _handle_chat_sync(handler, body):
             from api.state_sync import sync_session_cwd_background
 
             sync_session_cwd_background(
-                lambda: (s.session_id, s.workspace, getattr(s, "profile", None))
+                lambda _sid=s.session_id: _current_cwd_sync_target(_sid)
             )
         except Exception:
             logger.debug("Failed to schedule session cwd sync", exc_info=True)

@@ -140,14 +140,17 @@ def sync_session_start(session_id: str, model=None, profile: Optional[str] = Non
 def _normalize_session_cwd(workspace) -> str:
     """Canonical text form of a WebUI workspace for ``sessions.cwd``.
 
-    Trailing separators are stripped (``/a/b/`` and ``/a/b`` are one
-    workspace) so equality checks and prefix grouping stay stable. A path
+    Trailing ``/`` and ``\\`` separators are stripped (``/a/b/`` and ``/a/b``
+    are one workspace) so equality checks and prefix grouping stay stable.
+    Whitespace is never trimmed: it can be part of a real name. A path
     that is only an anchor is returned untouched: ``/``, a drive root such
     as ``C:\\`` (``C:`` would be drive-relative, a different path) and a UNC
     share root such as ``\\\\host\\share\\``.
     """
-    text = str(workspace or "").strip()
-    if not text:
+    text = str(workspace or "")
+    # ``strip()`` only detects blank input: surrounding whitespace is part of a
+    # valid directory name (``/x/acme `` is not ``/x/acme``) and is kept.
+    if not text.strip():
         return ""
     _drive, rest = ntpath.splitdrive(text)
     if not rest.strip("/\\"):
@@ -182,7 +185,10 @@ def sync_session_cwd(session_id: str, workspace, profile: Optional[str] = None, 
         return False
     owns_db = db is None
     if owns_db:
-        db = _get_state_db(profile=profile)
+        # A legacy ``profile=None`` session lives in the root home. Without an
+        # explicit name ``_get_state_db`` would fall back to the process-active
+        # profile, which this background write must never read.
+        db = _get_state_db(profile=profile or "default")
     if not db:
         return False
     try:
@@ -223,8 +229,11 @@ def sync_session_cwd_background(resolve) -> threading.Thread:
 
     ``resolve`` returns ``(session_id, workspace, profile)`` or ``None`` and is
     called *when the write runs*, under a module lock that serialises these
-    writes. Because every write re-reads the current workspace, two overlapping
-    syncs converge on the latest value whatever order they run in. Failures are
+    writes. It must look the session up by id at that moment rather than close
+    over a ``Session`` object: that object can be replaced (LRU eviction, disk
+    reload) between scheduling and running, and a stale one would write an
+    older workspace. Resolved that way, overlapping syncs converge on the
+    latest value whatever order they run in. Failures are
     logged at debug level and never reach the caller.
     """
     def _worker():
