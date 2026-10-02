@@ -26,6 +26,11 @@
 
 ### Performance
 
+- **The all-profiles session list no longer computes every profile's skill counts.** Listing
+  sessions across all profiles (`/api/sessions?all_profiles=1`) called the profile-picker builder
+  only to learn the profile names, which also counted every profile's skills. It now adds the
+  active profile, the root profile and one entry per directory under the profiles root directly.
+  The scanned profiles, their labels and the cache key are unchanged. (#7973 by @ybai08, part of #7940)
 - **Reconnect, settle, cancel and undo no longer re-download the whole transcript.** Six recovery
   paths (offline/bfcache refresh, stream-end settle, cancel sync, `/compress` preflight, `/retry` and
   `/undo`) sent a bare `GET /api/session` that re-walked, re-redacted and re-serialized every row. The
